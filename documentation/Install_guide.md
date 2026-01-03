@@ -1,94 +1,108 @@
-Guía de compilación Yocto para Raspberry Pi 4
 
-Entorno: RHEL 10 / Fedora 42 usando Toolbx o Podman 
+# Guía de creación y uso del contenedor Ubuntu 24.04 para Yocto (Raspberry Pi 5)
 
-1. Preparación del entorno
+Entorno Host: Fedora 43 usando Toolbox o Podman
 
-Instalación de Toolbox en un host Fedora / RHEL 10
+---
+
+## 1. Preparación del entorno en el host
+
+Instalar Toolbox (recomendado) o Podman:
+
+
 ```bash
-sudo dnf install toolbox
-```
-Si desea usar Podman
-
-```bash
+sudo dnf -y install toolbox
 sudo dnf -y install podman
 ```
 
-Crear el directorio de trabajo:
-```bash
-mkdir ~/tools
-```
-2. Creación del contenedor
+Crear un directorio de trabajo para contenedores e imágenes:
 
-Usando Toolbox (recomendado):
 ```bash
-toolbox create --image registry.fedoraproject.org/fedora-toolbox:38 yocto
+mkdir -p ~/tools/containers/ubuntu-toolbox-yocto
+cd ~/tools/containers/ubuntu-toolbox-yocto
+```
+---
+
+## 2. Crear el Containerfile
+
+Crear un archivo llamado `Containerfile` con el siguiente contenido:
+
+```bash
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN apt update && apt install -y \
+    sudo passwd ca-certificates dbus-user-session locales \
+    build-essential chrpath cpio debianutils diffstat file \
+    gawk gcc g++ git iputils-ping libacl1 liblz4-tool \
+    python3 python3-git python3-jinja2 python3-pexpect \
+    python3-pip python3-setuptools socat texinfo unzip \
+    wget xz-utils zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8
+
+RUN echo "%sudo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/toolbox \
+    && chmod 0440 /etc/sudoers.d/toolbox
+
+RUN set -eux; \
+    if getent passwd 1000; then \
+        userdel -r $(getent passwd 1000 | cut -d: -f1) || true; \
+    fi
+```
+---
+
+## 3. Construir la imagen
+
+```bash
+podman build -t ubuntu-toolbox-yocto:24.04 .
+``` 
+Verifica que la imagen se creó:
+
+```bash
+podman images | grep yocto
+``` 
+---
+
+## 4. Crear el contenedor
+
+### Usando Toolbox (recomendado):
+
+```bash
+toolbox create -i ubuntu-toolbox-yocto:24.04 yocto
 ```
 
-Usando Podman:
-```bash
-podman run -it --name yocto -v /home/<user>/tools:/tools:z registry.fedoraproject.org/fedora-toolbox:38 /bin/bash
-```
+### Usando Podman:
 
+```bash
+podman run -it --name yocto \
+    -v /home/<user>/tools:/tools:z \
+    ubuntu-toolbox-yocto:24.04 /bin/bash
+```
 Notas:
 
-    Reemplazar <user> por tu usuario.
-    Dentro del contenedor, Toolbox mantiene rutas del host (~/tools), Podman las monta en /tools.
+- Reemplaza `<user>` por tu usuario.
+- Toolbox mantiene rutas del host (~/tools), Podman las monta en /tools.
+- La imagen Ubuntu 24.04 se usa como contenedor con alias 'yocto'.
 
-    Se utiliza la imagen de Fedora 40 como contenedor con un alias 'yocto'
+---
 
-3. Ingreso al contenedor
+## 5. Ingreso al contenedor
 
-Usando Toolbox:
+### Toolbox:
+
 ```bash
 toolbox enter yocto
 ```
+### Podman:
 
-Usando Podman:
 ```bash
 podman start -ai yocto
-su - build
 ```
-
-Consideraciones:
-
-    En Podman se requiere un usuario sin privilegios de root (Yocto no permite compilar como root)
-
-    En Toolbox esto no es necesario, ya que las carpetas del host están expuestas y se ejecuta con el usuario del sistema
-
-Crear usuario no root en Podman:
-```bash
-useradd -m -u 1000 -s /bin/bash build
-```
-El usuario se llamará build.
-
-4. Instalación de dependencias
-   
-Como root (Toolbox o Podman:
-```bash
-dnf install -y @development-tools bzip2 ccache chrpath cpio cpp diffstat diffutils file findutils gawk gcc gcc-c++ git glibc-devel glibc-langpack-en gzip hostname lz4 make patch perl perl-Data-Dumper perl-File-Compare perl-File-Copy perl-FindBin perl-Text-ParseWords perl-Thread-Queue perl-bignum perl-locale python python3 python3-devel python3-GitPython python3-jinja2 python3-pexpect python3-pip python3-setuptools rpcgen socat tar texinfo unzip wget which xz zstd SDL-devel xterm mesa-libGL-devel nano sudo
-```
-
-4. Configuración de idioma
-
-```bash
-dnf install -y glibc-all-langpacks
-echo 'LANG=en_US.UTF-8' > /etc/locale.conf
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-```
-Finalmente ya puede salir de root:
-
-```bash
-exit
-```
-Y volverá a usuario normal
-
-En podman, requerimos entrar en modo usuario build:
-
-```bash
-su - build
-```
+El contenedor ya tiene configurado un usuario no root <user> con UID 1000, que es el mismo que tu usuario del host. Por eso no necesitas crear un usuario adicional.
 
 5. Preparación del entorno Yocto
 
@@ -142,7 +156,7 @@ bitbake-layers add-layer ../meta-openembedded/meta-networking
 bitbake-layers add-layer ../meta-tensorflow
 ```
 
-8. Configuración de compilación para Raspberry Pi 4
+8. Configuración de compilación para Raspberry Pi 5
 
 Editar conf/local.conf:
 ```bash
