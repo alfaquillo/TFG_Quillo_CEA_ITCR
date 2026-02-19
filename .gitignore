@@ -7,3 +7,16 @@
 .DS_Store
 Thumbs.db
 
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Archivos de bytecode de Python
+__pycache__/
+*.pyc
+
+# Archivos de IDEs
+.vscode/
+.idea/
+
