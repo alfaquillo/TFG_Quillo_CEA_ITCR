@@ -4,7 +4,7 @@ import tflite_runtime.interpreter as tflite
 import time
 
 MODEL_PATH = "yolo/yolo26n-seg_saved_model/yolo26n-seg_float16.tflite"
-IMG_PATH = "bus.jpg"
+IMG_PATH = "TCAM22.png"
 IMG_SIZE = 320
 CONF_THRES = 0.5
 
@@ -84,6 +84,12 @@ for i in range(len(boxes)):
 
 t4 = time.perf_counter() #contador de postprocesamiento
 
+# =============================== 
+# # GUARDAR RESULTADO # 
+# =============================== 
+cv2.imwrite("debug_segmented.jpg", result.astype(np.uint8)) 
+print("Saved debug_segmented.jpg")
+
 # ===============================
 # PERFIL FINAL
 # ===============================
@@ -119,3 +125,5 @@ total_loop_time = end_loop - start_loop
 fps_real = num_runs / total_loop_time
 
 print(f"FPS promedio inferencia: {fps_real:.2f}")
+
+
