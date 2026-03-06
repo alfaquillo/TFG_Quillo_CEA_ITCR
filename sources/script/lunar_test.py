@@ -1,166 +1,229 @@
+import os
 import cv2
 import numpy as np
-import tflite_runtime.interpreter as tflite
 import time
+import tensorflow as tf
 
-# ===============================
+# ==============================
 # CONFIGURACIÓN
-# ===============================
-MODEL_PATH = "lunarModel_rpi5_cpu.tflite"
-IMG_PATH = "PCAM5.png"  
-CONF_THRES = 0.5
+# ==============================
 
-# ===============================
+MODEL_PATH = "lunarModel_rpi5_cpu.tflite"
+IMAGE_DIR = "dataset_test"
+SAVE_DIR = "results"
+
+DEBUG = True
+SAVE_IMAGES = True
+
+IMG_DATASET_H = 240
+IMG_DATASET_W = 320
+
+MODEL_H = 256
+MODEL_W = 320
+
+NAV_CLASSES = [0, 1]
+
+FRAMES_PER_DECISION = 5
+
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# ==============================
 # CARGAR MODELO
-# ===============================
-print("Cargando modelo...")
-interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+# ==============================
+
+interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
-# Obtener tamaño que espera el modelo
-INPUT_HEIGHT = input_details[0]['shape'][1]  # Altura esperada por el modelo
-INPUT_WIDTH = input_details[0]['shape'][2]   # Ancho esperado por el modelo
-print(f"Modelo espera entrada: {input_details[0]['shape']}")
-print(f"Salidas del modelo lunar: {len(output_details)}")
-print(f"Forma de salida: {output_details[0]['shape']}")
+# ==============================
+# CARGAR DATASET
+# ==============================
 
-# ===============================
-# CARGAR IMAGEN
-# ===============================
-t0 = time.perf_counter()
+image_paths = sorted([
+    os.path.join(IMAGE_DIR, x)
+    for x in os.listdir(IMAGE_DIR)
+    if x.lower().endswith((".jpg", ".png"))
+])
 
-img0 = cv2.imread(IMG_PATH)
-if img0 is None:
-    raise FileNotFoundError(f"❌ No se pudo cargar la imagen: {IMG_PATH}")
+print("Imágenes encontradas:", len(image_paths))
 
-h, w = img0.shape[:2]
-print(f"Imagen cargada: {w}x{h}")
+# ==============================
+# FUNCIONES
+# ==============================
 
-# ===============================
-# PREPROCESAMIENTO
-# ===============================
-# Verificar si la imagen ya tiene el tamaño esperado por el modelo
-if h == INPUT_HEIGHT and w == INPUT_WIDTH:
-    print(f"✅ La imagen ya tiene el tamaño correcto ({INPUT_WIDTH}x{INPUT_HEIGHT}). Usando directamente.")
-    img_resized = img0
-else:
-    print(f"⚠️ La imagen no tiene el tamaño esperado ({INPUT_WIDTH}x{INPUT_HEIGHT}). Redimensionando...")
-    img_resized = cv2.resize(img0, (INPUT_WIDTH, INPUT_HEIGHT))
+def preprocess(img):
 
-# Normalizar (igual que en entrenamiento)
-img_input = img_resized.astype(np.float32) / 255.0
-img_input = np.expand_dims(img_input, axis=0)
+    model_img = cv2.resize(img, (MODEL_W, MODEL_H))
+    model_img = model_img.astype(np.float32) / 255.0
+    model_img = np.expand_dims(model_img, axis=0)
 
-t1 = time.perf_counter()
+    return model_img
 
-# ===============================
-# INFERENCIA
-# ===============================
-interpreter.set_tensor(input_details[0]['index'], img_input)
-interpreter.invoke()
 
-t2 = time.perf_counter()
+def infer(model_img):
 
-# ===============================
-# POSTPROCESO
-# ===============================
-# Obtener máscara (la forma dependerá del modelo)
-mask_output = interpreter.get_tensor(output_details[0]['index'])[0]
+    interpreter.set_tensor(input_details[0]["index"], model_img)
+    interpreter.invoke()
 
-# Verificar la forma de la salida
-print(f"Forma de la máscara de salida: {mask_output.shape}")
+    output = interpreter.get_tensor(output_details[0]["index"])[0]
 
-# Si la salida tiene 4 dimensiones (como [height, width, num_classes])
-if len(mask_output.shape) == 3:
-    mask_class = np.argmax(mask_output, axis=-1).astype(np.uint8)
-# Si la salida tiene 2 dimensiones (ya es la máscara clasificada)
-elif len(mask_output.shape) == 2:
-    mask_class = mask_output.astype(np.uint8)
-else:
-    print(f"⚠️ Forma de salida no esperada: {mask_output.shape}")
-    # Intentar manejar otros casos
-    if len(mask_output.shape) == 4:  # [1, height, width, classes]
-        mask_class = np.argmax(mask_output[0], axis=-1).astype(np.uint8)
+    mask = np.argmax(output, axis=-1)
+
+    mask = cv2.resize(mask.astype(np.uint8),
+                      (IMG_DATASET_W, IMG_DATASET_H),
+                      interpolation=cv2.INTER_NEAREST)
+
+    return mask
+
+
+def create_navigation_mask(mask):
+
+    nav = np.isin(mask, NAV_CLASSES).astype(np.uint8)
+
+    return nav
+
+
+def trapezoid_roi(img_shape):
+
+    h, w = img_shape
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+
+    top_y = int(h * 0.55)
+    bottom_y = int(h * 0.95)
+
+    top_left = int(w * 0.40)
+    top_right = int(w * 0.60)
+
+    bottom_left = int(w * 0.15)
+    bottom_right = int(w * 0.85)
+
+    pts = np.array([[
+        (top_left, top_y),
+        (top_right, top_y),
+        (bottom_right, bottom_y),
+        (bottom_left, bottom_y)
+    ]], dtype=np.int32)
+
+    cv2.fillPoly(mask, pts, 1)
+
+    return mask
+
+
+def decide_direction(nav_mask, roi_mask):
+
+    region = nav_mask * roi_mask
+
+    h, w = region.shape
+
+    center = region[:, int(w*0.4):int(w*0.6)]
+    left = region[:, :int(w*0.4)]
+    right = region[:, int(w*0.6):]
+
+    center_ratio = np.mean(center)
+    left_ratio = np.mean(left)
+    right_ratio = np.mean(right)
+
+    if center_ratio > 0.20:
+        decision = "FORWARD"
     else:
-        raise ValueError(f"No se puede procesar la salida con forma {mask_output.shape}")
+        if left_ratio > right_ratio:
+            decision = "LEFT"
+        else:
+            decision = "RIGHT"
 
-# Si la imagen original no tenía el tamaño de entrada del modelo,
-# redimensionar la máscara al tamaño original
-if h != INPUT_HEIGHT or w != INPUT_WIDTH:
-    print(f"Redimensionando máscara al tamaño original {w}x{h}")
-    mask_final = cv2.resize(mask_class, (w, h), interpolation=cv2.INTER_NEAREST)
-else:
-    mask_final = mask_class
+    return decision, center_ratio, left_ratio, right_ratio
 
-t3 = time.perf_counter()
 
-# ===============================
-# VISUALIZACIÓN
-# ===============================
-# Crear overlay coloreado
-result = img0.copy()
-overlay = np.zeros_like(img0)
+def colorize_mask(mask):
 
-# Colores para cada clase (ajusta según tus clases reales)
-colors = [
-    [0, 255, 0],    # Clase 0: ¿Suelo? - Verde
-    [0, 0, 255],    # Clase 1: ¿Rocas? - Rojo
-    [255, 0, 0],    # Clase 2: ¿Cráteres? - Azul
-    [255, 255, 0],  # Clase 3: ¿Otros? - Amarillo
-]
+    colors = np.array([
+        [60,60,60],      # suelo
+        [0,255,255],     # small rocks
+        [0,0,255],       # large rocks
+        [255,200,0]      # sky
+    ], dtype=np.uint8)
 
-# Aplicar color a cada píxel según su clase
-num_classes = mask_final.max() + 1
-print(f"Número de clases detectadas en la máscara: {num_classes}")
+    return colors[mask]
 
-for class_id in range(num_classes):
-    if class_id < len(colors):
-        overlay[mask_final == class_id] = colors[class_id]
-    else:
-        # Si hay más clases que colores definidos, usar blanco
-        overlay[mask_final == class_id] = [255, 255, 255]
 
-# Mezclar imagen original con overlay
-alpha = 0.5
-result = cv2.addWeighted(img0, 1-alpha, overlay, alpha, 0)
+# ==============================
+# BENCHMARK
+# ==============================
 
-# ===============================
-# GUARDAR RESULTADOS
-# ===============================
-output_name = f"segmented_{IMG_PATH}"
-cv2.imwrite(output_name, result)
-print(f"✅ Resultado guardado en {output_name}")
+roi_mask = trapezoid_roi((IMG_DATASET_H, IMG_DATASET_W))
 
-# ===============================
-# MOSTRAR ESTADÍSTICAS
-# ===============================
-print("\n==== ESTADÍSTICAS DE SEGMENTACIÓN ====")
-unique, counts = np.unique(mask_final, return_counts=True)
-total_pixels = mask_final.size
+start = time.time()
 
-class_names = ["Suelo", "Rocas", "Cráteres", "Otros"]
-for class_id, count in zip(unique, counts):
-    percentage = (count / total_pixels) * 100
-    class_name = class_names[class_id] if class_id < len(class_names) else f"Clase {class_id}"
-    color = colors[class_id] if class_id < len(colors) else [255, 255, 255]
-    print(f"{class_name}: {percentage:.1f}% del área")
+decision_buffer = []
 
-# ===============================
-# TIEMPOS
-# ===============================
-print("\n==== TIEMPOS ====")
-print(f"Carga y preproceso: {(t1-t0)*1000:.2f} ms")
-print(f"Inferencia: {(t2-t1)*1000:.2f} ms")
-print(f"Postproceso: {(t3-t2)*1000:.2f} ms")
-print(f"Total: {(t3-t0)*1000:.2f} ms")
+for idx, path in enumerate(image_paths):
 
-# ===============================
-# MOSTRAR IMAGEN (opcional, para depuración)
-# ===============================
-# cv2.imshow("Original", img0)
-# cv2.imshow("Segmentación", result)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+    img = cv2.imread(path)
+
+    model_img = preprocess(img)
+
+    mask = infer(model_img)
+
+    nav_mask = create_navigation_mask(mask)
+
+    decision, c, l, r = decide_direction(nav_mask, roi_mask)
+
+    decision_buffer.append(decision)
+
+    # decisión final cada 5 frames
+    if len(decision_buffer) == FRAMES_PER_DECISION:
+
+        final_decision = max(set(decision_buffer), key=decision_buffer.count)
+
+        print(
+            f"Frame {idx} | "
+            f"center={c:.2f} left={l:.2f} right={r:.2f} | "
+            f"DECISION={final_decision}"
+        )
+
+        decision_buffer = []
+
+    # ======================
+    # DEBUG VISUAL
+    # ======================
+
+    if DEBUG:
+
+        color_mask = colorize_mask(mask)
+
+        overlay = cv2.addWeighted(img, 0.6, color_mask, 0.4, 0)
+
+        roi_vis = (roi_mask * 255).astype(np.uint8)
+        roi_vis = cv2.cvtColor(roi_vis, cv2.COLOR_GRAY2BGR)
+
+        combined = np.hstack([
+            img,
+            color_mask,
+            overlay
+        ])
+
+        cv2.imshow("debug", combined)
+        cv2.waitKey(1)
+
+        if SAVE_IMAGES:
+
+            out_path = os.path.join(SAVE_DIR, f"frame_{idx:04d}.png")
+            cv2.imwrite(out_path, combined)
+
+end = time.time()
+
+# ==============================
+# RESULTADOS
+# ==============================
+
+total_time = end - start
+fps = len(image_paths) / total_time
+
+print("\n==== RESULTADOS ====")
+print("Imágenes:", len(image_paths))
+print("Tiempo:", round(total_time,2), "s")
+print("FPS:", round(fps,2))
+print("ms/frame:", round(1000/fps,2))
