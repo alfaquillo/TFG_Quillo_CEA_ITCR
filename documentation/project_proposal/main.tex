@@ -1,0 +1,479 @@
+\documentclass[12pt]{article}
+
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{multirow}
+\usepackage[table,xcdraw]{xcolor}
+\usepackage{caption}
+\usepackage{tocbibind} %Index of table of contents
+\usepackage{url} 
+
+\geometry{a4paper, total={170mm, 257mm}, left=20mm, right=20mm, top=25mm, bottom=25mm}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{fancyhdr}
+
+\usepackage{pgfgantt}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+
+\pagestyle{fancy}
+\fancyhf{} % Limpia los estilos anteriores de encabezado y pie de página
+
+\rhead{Tecnológico de Costa Rica}
+\cfoot{\thepage} % Número de página en el centro
+\renewcommand{\headrulewidth}{0.5pt}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{1em}
+\usepackage{makeidx}
+\makeindex
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% here Begins the document
+
+\begin{document}
+\begin{titlepage}
+
+  \centering
+  \vspace{10cm}
+  \textbf{\LARGE Instituto Tecnológico de Costa Rica}\\
+  \vspace{1cm}
+  \textbf{\LARGE Escuela de Ingeniería Electrónica}\\
+  \vspace{2cm}
+  \includegraphics[width=10cm]{imagenes/logo_tec.png}
+  \vspace{2cm}
+  \hrule
+  \vspace{1cm}
+  \textbf{\LARGE Diseño e implementación de un sistema multimodal de percepción e inferencia para la navegación autónoma basada en SLAM de un rover terrestre integrado a una arquitectura multiagente}
+  \vspace{1cm}
+  \hrule
+  \vspace{1cm}
+  \textbf{\LARGE SETECLab-TEC\\}
+  \vspace{1cm}
+  \textbf{\LARGE Carlos Enrique Elizondo Alfaro\\}
+  \vspace{1cm}
+  \textbf{\LARGE 2017083111}
+
+  \vspace{1cm}
+  \today % Esto agrega la fecha actual
+\end{titlepage}
+\par
+\vspace*{\fill} 
+
+Yo, Carlos Enrique Elizondo Alfaro, portador de la cédula de identidad 113850669, declaro que los resultados obtenidos en el presente trabajo de investigación, previo a la obtención del título de Licenciado en Ingeniería Electrónica del Instituto Tecnológico de Costa Rica, son absolutamente originales, personales y auténticos.\par
+
+Reconozco que el incumplimiento de los derechos de autor y las faltas a la ética científica, tales como la creación de información falsa o el plagio, pueden acarrear sanciones de carácter legal y universitario.\par
+
+En consecuencia, manifiesto que el trabajo de investigación sometido a evaluación no ha sido presentado previamente para la obtención de ningún grado académico ni título profesional, ni ha sido difundido en ningún medio. Por lo que asumo de manera íntegra la responsabilidad legal y académica que pudiera derivarse de este.
+\vspace{4cm}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{Entorno del proyecto}
+
+El Instituto Tecnológico de Costa Rica es una institución de educación superior que contribuye al desarrollo integral del país mediante la formación del recurso humano, la investigación y la extensión; manteniendo el liderazgo científico, tecnológico y técnico, la excelencia académica y el apego a normas éticas, humanísticas y ambientales, desde una perspectiva universitaria estatal de calidad y competitividad a nivel nacional e internacional \cite{queeseltec}. Su sede se encuentra en la ciudad de Cartago, específicamente en el cantón Central. La institución ofrece carreras que otorgan títulos correspondientes a cualquiera de los grados universitarios en el área tecnológica \cite{leytec}.
+
+Dentro de esta institución se imparte la carrera de Ingeniería Electrónica, cuyo objetivo es formar profesionales capaces de diseñar, innovar y gestionar soluciones tecnológicas en áreas como telecomunicaciones, automatización y sistemas electrónicos aplicados, mediante la práctica, investigación aplicada y desarrollo de prototipos funcionales \cite{escuela}. En 2017, la Escuela creó el Laboratorio de Sistemas Espaciales SETEC-Lab, único en su tipo en América Central, cuya misión es desarrollar proyectos y programas junto con entes nacionales e internacionales, orientados al fortalecimiento de la ciencia y la tecnología en ingeniería espacial \cite{tec_setec_lab}.
+
+Este trabajo se enmarca en el desarrollo de soluciones tecnológicas orientadas a la robótica móvil y sistemas autónomos. Se aborda el diseño de un sistema de navegación autónoma para un rover terrestre de exploración, concebido como una plataforma experimental para integrar y evaluar técnicas modernas de percepción, inteligencia artificial y control bajo restricciones de sistemas embebidos.
+
+La navegación autónoma en entornos desconocidos constituye un reto importante en robótica móvil. A diferencia de los sistemas tradicionales, que operan sobre mapas conocidos o infraestructuras controladas, los rovers deben percibir su entorno, fusionar información sensorial heterogénea, estimar su estado espacial y tomar decisiones de movimiento en tiempo real \cite{mdpi_sensors_2014_slam,isprs_2019_navigation,mdpi_sensors_2025_navigation}.
+
+Los avances recientes en percepción robótica permiten incorporar visión por computadora y aprendizaje profundo para mejorar la comprensión del entorno. Algoritmos de clasificación y segmentación semántica identifican regiones navegables, obstáculos y elementos relevantes a partir de información visual, complementando datos de sensores de proximidad \cite{mdpi_sensors_2023_navigation,segformer}. Sin embargo, la mayoría de estas soluciones han sido desarrolladas para plataformas de alto rendimiento, limitando su aplicación directa en sistemas embebidos de bajo consumo.
+
+Los enfoques de localización y mapeo simultáneo (SLAM) son fundamentales para la navegación en entornos no estructurados. Estas técnicas permiten estimar incrementalmente la posición del rover y construir un mapa del entorno usando información sensorial ruidosa e incompleta \cite{mdpi_sensors_2014_slam,fujipress_robot_navigation}. Su eficacia ha sido validada en exploración robótica, incluyendo misiones planetarias como Mars~2020 Perseverance y ExoMars \cite{mars2020,exomars}.
+
+El desarrollo de sistemas autónomos se ve condicionado por las limitaciones de las plataformas embebidas, como capacidad de procesamiento, memoria y consumo energético. Dispositivos como el ESP32 ofrecen conectividad y capacidades moderadas de cómputo, resultando atractivos para sistemas de bajo costo \cite{esp32_trm}. No obstante, estas limitaciones requieren sistemas operativos de tiempo real y arquitecturas de software eficientes para garantizar un comportamiento determinista \cite{freertos_fundamentals,sei_realtime}.
+
+En entornos de exploración autónoma, donde múltiples procesos deben ejecutarse concurrentemente, las arquitecturas distribuidas y los sistemas multiagente son adecuados para mejorar modularidad, escalabilidad y tolerancia a fallos. Los agentes cooperan para realizar tareas de percepción, inferencia y toma de decisiones, permitiendo separación clara de responsabilidades y flexibilidad del sistema \cite{chanzheng2017_maes,carvajal2021_agents,fipa_spec}.
+
+Bajo este marco, el anteproyecto propone diseñar e implementar un sistema multimodal de percepción, inferencia y navegación autónoma para un rover terrestre. El sistema integrará información visual, datos de sensores de proximidad y técnicas de IA embebida con enfoque SLAM para estimación de posición y planificación de rutas. Los algoritmos se integrarán en un sistema multiagente existente, evaluando su operación en una plataforma embebida funcional representativa de escenarios reales de exploración.
+
+\section{Definición del problema}
+
+\subsection{Generalidades}
+
+La navegación autónoma de rovers terrestres en entornos desconocidos requiere la integración coordinada de múltiples capacidades: percepción del entorno, inferencia sobre la escena observada, estimación de la posición del vehículo y planificación de rutas seguras. Estas capacidades deben operar en tiempo real utilizando información sensorial incompleta y afectada por ruido, lo que representa un desafío técnico relevante en el diseño de sistemas robóticos autónomos \cite{mdpi_sensors_2025_navigation,mdpi_sensors_2023_navigation}.
+
+En aplicaciones de exploración, los rovers no disponen de mapas previos, por lo que deben construir representaciones internas del espacio mientras se desplazan. Este proceso requiere algoritmos de localización y mapeo simultáneo (SLAM), así como mecanismos de percepción multimodal que combinen información visual con datos de sensores de proximidad. La correcta integración de estas técnicas resulta fundamental para garantizar una navegación robusta en entornos no estructurados \cite{mdpi_sensors_2014_slam,isprs_2019_navigation,fujipress_robot_navigation}.
+
+Desde el punto de vista de la implementación, estos sistemas deben ejecutarse sobre plataformas embebidas con recursos limitados de cómputo, memoria y consumo energético. Por ello, se vuelve indispensable el uso de modelos de inteligencia artificial optimizados y arquitecturas de software eficientes que permitan cumplir con los requerimientos temporales del sistema. Además, la ejecución concurrente de tareas de percepción, inferencia y control introduce retos adicionales asociados a la predictibilidad y coordinación de procesos en tiempo real \cite{sei_realtime}.
+
+La tendencia hacia arquitecturas distribuidas y sistemas multiagente ha permitido abordar sistemas autónomos complejos mediante la descomposición funcional en módulos cooperativos. Este enfoque facilita la modularidad, escalabilidad y tolerancia a fallos, aspectos relevantes en sistemas de exploración autónoma implementados sobre plataformas embebidas \cite{carvajal2021_agents,chanzheng2017_maes,fipa_spec}.
+
+\subsection{Síntesis del problema}
+
+El Laboratorio de Sistemas Espaciales SETEC-Lab del Instituto Tecnológico de Costa Rica no cuenta actualmente con un marco de trabajo que permita la implementación, integración y evaluación sistemática de algoritmos de percepción, navegación y guía autónoma en plataformas embebidas, orientado a rovers terrestres de exploración en entornos desconocidos \cite{tec_setec_lab}.
+
+En particular, no existe una solución que facilite la combinación de información visual y sensores de proximidad, la incorporación de técnicas SLAM, ni la integración de estos algoritmos dentro de un sistema multiagente previamente desarrollado. Tampoco se dispone de mecanismos estandarizados para medir objetivamente el desempeño del sistema bajo restricciones propias de plataformas embebidas, como capacidad limitada de cómputo y consumo energético \cite{mdpi_sensors_2025_navigation,carvajal2021_agents,freemaes_repo}.
+
+Esta carencia limita la capacidad del laboratorio para evaluar experimentalmente estrategias modernas de navegación autónoma en escenarios de exploración, así como para validar su aplicabilidad en sistemas reales de bajo costo y consumo, comparables a plataformas utilizadas en misiones de exploración robótica terrestre \cite{mars2020,exomars}.
+
+\section{Enfoque de la solución}
+
+Como respuesta al problema identificado, se plantea el desarrollo de un conjunto de flujos de trabajo orientados a la implementación de algoritmos de percepción, inferencia y navegación autónoma sobre plataformas embebidas. Dichos flujos se ejecutarán directamente en el rover, sin recurrir a simuladores propietarios, utilizando lenguajes de programación y bibliotecas de código abierto.
+
+El enfoque propuesto considera la adquisición de información visual mediante una cámara integrada a un microcontrolador, así como datos de sensores de proximidad, procesados mediante algoritmos de clasificación y segmentación basados en inteligencia artificial embebida. Esta información alimentará un sistema de navegación que incorpora técnicas SLAM, permitiendo estimar la posición del rover y definir rutas de desplazamiento en entornos desconocidos.
+
+Para seleccionar el enfoque más adecuado, se analizan distintas alternativas mediante una matriz de Pugh. En ella, una alternativa de referencia se compara con las demás; un valor de 0 indica desempeño similar, +1 indica mejora y -1 desempeño inferior respecto a la referencia \cite{mdpi_sensors_2023_navigation,mdpi_sensors_2014_slam,segformer,deeplab_demo}.
+
+\subsection{Alternativa 1}
+
+La primera alternativa propone desarrollar los algoritmos de percepción y navegación de forma monolítica, ejecutando todos los procesos en una única unidad de cómputo a bordo del rover. La adquisición de datos sensoriales, el procesamiento de la información visual, la estimación del estado y la toma de decisiones se implementan como un único sistema tightly-coupled \cite{sei_realtime}.
+
+Aunque simplifica la implementación inicial, presenta limitaciones en escalabilidad, reutilización de componentes y flexibilidad para integración con sistemas multiagente. Además, dificulta la evaluación individual del desempeño de cada subsistema.
+
+\subsection{Alternativa 2}
+
+Esta alternativa propone un flujo de trabajo modular basado en herramientas de código abierto, donde los algoritmos de percepción, inferencia y navegación se implementan como módulos independientes que se comunican entre sí. La percepción combina información visual de la cámara y datos de sensores de proximidad, empleando modelos de clasificación y segmentación optimizados para plataformas embebidas mediante TensorFlow Lite \cite{chanzheng2017_maes,freemaes_repo,fipa_spec,esp32_trm,esp32_cam_cloud}.
+
+La navegación se apoya en SLAM para estimar la posición del rover y construir mapas del entorno en tiempo real. Los módulos se integran a un sistema multiagente previamente implementado, permitiendo que el rover opere como un agente dentro de una arquitectura distribuida. Este enfoque favorece flexibilidad, reutilización de componentes y evaluación individual de cada subsistema.
+
+\subsection{Alternativa 3}
+
+La tercera alternativa delega parte del procesamiento de percepción e inferencia a un sistema externo, utilizando comunicación inalámbrica entre el rover y una unidad de cómputo remota. El rover actúa principalmente como plataforma de adquisición de datos y ejecución de acciones, mientras que el procesamiento intensivo se realiza fuera del sistema embebido.
+
+Aunque permite usar modelos más complejos y reduce la carga computacional a bordo, introduce dependencias de conectividad y latencias que afectan la operación en tiempo real, limitando la autonomía en escenarios donde la comunicación no es confiable \cite{esp32_trm,esp32_cam_cloud}.
+
+\subsection{Selección de la solución}
+
+Se realiza una matriz de Pugh para determinar la alternativa que mejor se adapte al proyecto. Cada criterio se pondera según su relevancia:
+
+\begin{table}[h!]
+\centering
+\caption{Matriz de Pugh para la selección de la solución}
+\label{tab:matriz_pugh}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Criterio} & \textbf{Peso} & \textbf{Alt. 1} & \textbf{Alt. 2} & \textbf{Alt. 3} \\ \hline
+Compatibilidad embebida & 5 & -1 & 0 & -1 \\ \hline
+Integración multiagente & 5 & -1 & 0 & -1 \\ \hline
+Flexibilidad y modularidad & 4 & -1 & 0 & +1 \\ \hline
+Costo de implementación & 4 & -1 & 0 & -1 \\ \hline
+Escalabilidad del sistema & 3 & -1 & 0 & +1 \\ \hline
+Dependencia de conectividad & 4 & 0 & 0 & -1 \\ \hline
+Viabilidad técnica del proyecto & 5 & -1 & 0 & -1 \\ \hline
+\textbf{Puntaje ponderado} &  & \textbf{-27} & \textbf{0} & \textbf{-11} \\ \hline
+\textbf{Posición} &  & 3 & 1 & 2 \\ \hline
+\end{tabular}
+\end{table}
+
+La Alternativa 2 fue seleccionada como referencia, al proponer un flujo de trabajo modular, basado en código abierto y compatible con sistemas embebidos y frameworks multiagente como FreeMAES. Las demás alternativas presentan limitaciones significativas: la Alternativa 1 es monolítica y no orientada a embebidos, mientras que la Alternativa 3 depende excesivamente de infraestructura externa y conectividad, incompatible con entornos de exploración desconocidos.
+
+\section{Objetivo General}
+
+Desarrollar e integrar un conjunto de algoritmos embebidos de percepción, inferencia y navegación autónoma basada en SLAM para un rover terrestre, utilizando técnicas de inteligencia artificial ligera, dentro de una arquitectura multiagente preexistente.
+
+\textbf{Indicador:} Implementación funcional del sistema autónomo capaz de percibir el entorno, estimar su estado espacial y ejecutar navegación autónoma en un escenario de prueba definido.
+
+\textbf{Entregable:} Repositorio en GitHub que contenga el código fuente, documentación técnica y manual de uso del sistema desarrollado, así como evidencias de ejecución en la plataforma embebida.
+
+\section{Objetivos Específicos}
+
+\begin{itemize}
+
+\item Diseñar e implementar un algoritmo multimodal de segmentación y clasificación del entorno a partir de una cámara y sensores de proximidad, orientado a la identificación de obstáculos y regiones navegables.
+
+\textbf{Indicador:} Funcionamiento validado del algoritmo de percepción multimodal mediante la generación de mapas semánticos o etiquetas del entorno en tiempo real.
+
+\textbf{Entregable:} Código fuente del algoritmo de segmentación y clasificación, modelo de inteligencia artificial optimizado para ejecución embebida y documentación del proceso de entrenamiento, conversión e integración.
+
+\item Desarrollar un algoritmo de navegación autónoma basado en una estrategia de localización y mapeo simultáneo (SLAM), que permita al rover estimar su posición y construir una representación del entorno desconocido para la planificación de rutas.
+
+\textbf{Indicador:} Generación de mapas del entorno y estimaciones consistentes de la posición del rover durante recorridos autónomos en un escenario de prueba.
+
+\textbf{Entregable:} Implementación del algoritmo SLAM integrada al sistema de navegación, junto con registros de ejecución, mapas generados y documentación técnica del algoritmo.
+
+\item Integrar y validar el funcionamiento de los algoritmos de percepción, inferencia y navegación dentro de un sistema multiagente preexistente, demostrando la coordinación entre los distintos módulos funcionales del sistema autónomo.
+
+\textbf{Indicador:} Ejecución coordinada de múltiples agentes durante una misión de navegación autónoma, evidenciando intercambio de información y toma de decisiones distribuida.
+
+\textbf{Entregable:} Evidencias experimentales del sistema multiagente en operación, incluyendo registros de comunicación entre agentes, resultados de pruebas funcionales y documentación de la integración con la arquitectura multiagente.
+
+\end{itemize}
+
+\section{Procedimiento para la ejecución del proyecto}
+
+La ejecución del proyecto se organiza en fases técnicas secuenciales, definidas a partir de los objetivos específicos y de las dependencias funcionales entre los distintos módulos del sistema. Cada fase contempla actividades de análisis, diseño, implementación y validación, permitiendo una integración progresiva del sistema completo.
+
+Inicialmente, se realiza un análisis del sistema base, incluyendo la plataforma del rover, los sensores disponibles y la arquitectura multiagente preexistente, con el fin de definir las interfaces y restricciones del sistema. Posteriormente, se desarrolla el módulo de percepción multimodal, integrando información visual y de sensores de proximidad mediante técnicas de inteligencia artificial ligera ejecutadas en hardware embebido.
+
+Una vez validado el módulo de percepción, se implementa el algoritmo de navegación autónoma basado en una estrategia de localización y mapeo simultáneo (SLAM), permitiendo al rover estimar su posición y construir una representación del entorno desconocido para la planificación de rutas. Este módulo se integra posteriormente dentro de la arquitectura multiagente, asignando funciones específicas a cada agente y validando la coordinación entre ellos.
+
+Finalmente, se ejecutan pruebas experimentales en escenarios definidos, se analizan los resultados obtenidos y se documenta todo el proceso de desarrollo, integración y validación del sistema.
+
+La ejecución del proyecto se planifica de forma jerárquica, estableciendo actividades alineadas con los objetivos específicos, los requisitos técnicos de cada etapa y las dependencias entre actividades. Asimismo, se definen los tiempos estimados de ejecución, los cuales se resumen en la Tabla \ref{tab:actividades}.
+
+\newpage
+
+\begin{table}[h!]
+  \centering
+  \caption{Desglose de actividades a realizar durante el desarrollo del proyecto}
+  \label{tab:actividades}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{|c|l|c|c|c|}
+  \hline
+  \textbf{\#} &
+    \multicolumn{1}{c|}{\textbf{Actividad}} &
+    \textbf{Objetivo Específico} &
+    \textbf{Tiempo (días)} &
+    \textbf{Dependencias} \\ \hline
+
+  A & Investigación de plataformas de hardware embebido para navegación autónoma & 1 & 4 & N.A. \\ \hline
+  B & Definición de requerimientos de hardware y software del sistema & 1 & 4 & A \\ \hline
+  C & Selección de Raspberry Pi como plataforma objetivo & 1 & 3 & A,B \\ \hline
+  D & Configuración del entorno de desarrollo en la máquina host & 1 & 3 & C \\ \hline
+  E & Documentación de la arquitectura del sistema & 1 & 6 & A,B,C,D \\ \hline
+  F & Diseño del flujo de procesamiento del sistema de navegación & 2 & 4 & E \\ \hline
+  G & Implementación del sistema de navegación en Python sobre la máquina host & 2 & 8 & F \\ \hline
+  H & Validación funcional del sistema mediante pruebas en entorno controlado & 2 & 6 & G \\ \hline
+  I & Portado y ejecución del sistema en Raspberry Pi & 2 & 5 & H \\ \hline
+  J & Documentación de resultados intermedios & 2 & 6 & F,G,H,I \\ \hline
+  K & Configuración del entorno Yocto para la plataforma Raspberry Pi & 3 & 5 & J \\ \hline
+  L & Creación de capas y recetas Yocto para el sistema de navegación & 3 & 6 & K \\ \hline
+  M & Generación de la imagen Yocto personalizada para Raspberry Pi & 3 & 5 & L \\ \hline
+  N & Integración y pruebas finales del sistema sobre la imagen Yocto generada & 3 & 6 & M \\ \hline
+  O & Documentación final del proyecto & 1,2,3 & 8 & J,K,L,M,N \\ \hline
+
+  \end{tabular}%
+  }
+\end{table}
+
+
+\section{Cronograma de actividades}
+
+La agenda de actividades comprende el periodo de desarrollo del proyecto a lo largo de 16 semanas lectivas, durante las cuales se ejecutan de manera progresiva las etapas de análisis, diseño, implementación, integración y validación del sistema propuesto. Dicho periodo permite abordar tanto el desarrollo del sistema de navegación en entorno de desarrollo como su posterior integración en la plataforma embebida mediante una imagen personalizada de Yocto.
+
+Para visualizar la planificación temporal de las actividades, se presentan dos diagramas complementarios: un diagrama de Gantt, que muestra la distribución de las actividades a lo largo de las semanas, y un diagrama PERT, que ilustra las dependencias y la secuencia lógica de ejecución entre las distintas tareas.
+\newpage
+\subsection{Diagrama de Gantt}
+
+\begin{figure}[h!]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{ganttchart}[
+    hgrid,
+    vgrid,
+    x unit=0.6cm,
+    y unit chart=0.7cm,
+    bar height=0.5,
+    bar/.append style={fill=gray!60},
+    group/.append style={fill=gray!30},
+    milestone/.append style={fill=black}
+]{1}{16}
+
+% Títulos
+\gantttitle{Cronograma del proyecto (Febrero -- Junio 2026)}{16} \\
+\gantttitle{Semanas lectivas}{16} \\
+\gantttitlelist{1,...,16}{1} \\
+
+% ---- Fase 1 ----
+\ganttgroup{Fase 1: Análisis y diseño}{1}{4} \\
+\ganttbar{A. Investigación plataformas HW}{1}{1} \\
+\ganttbar{B. Requerimientos HW/SW}{2}{2} \\
+\ganttbar{C. Arquitectura multiagente y SLAM}{3}{4} \\
+\ganttbar{D. Selección plataforma (Raspberry Pi)}{4}{4} \\
+\ganttbar{E. Documentación fase de análisis}{3}{4} \\
+
+% ---- Fase 2 ----
+\ganttgroup{Fase 2: Desarrollo de algoritmos}{5}{10} \\
+\ganttbar{F. Algoritmos de percepción}{5}{6} \\
+\ganttbar{G. Algoritmos SLAM y navegación}{6}{8} \\
+\ganttbar{H. Integración en arquitectura multiagente}{8}{9} \\
+\ganttbar{I. Pruebas en entorno de desarrollo}{9}{10} \\
+\ganttbar{J. Documentación de implementación}{7}{10} \\
+
+% ---- Fase 3 ----
+\ganttgroup{Fase 3: Plataforma embebida y validación}{11}{16} \\
+\ganttbar{K. Diseño de imagen Yocto}{11}{12} \\
+\ganttbar{L. Portado del sistema a Raspberry Pi}{12}{13} \\
+\ganttbar{M. Integración HW/SW final}{13}{14} \\
+\ganttbar{N. Validación del sistema embebido}{14}{15} \\
+\ganttbar{O. Documentación final y resultados}{14}{16}
+
+\end{ganttchart}
+}
+\caption{Diagrama de Gantt del proyecto (16 semanas lectivas)}
+\label{fig:gantt}
+\end{figure}
+
+\newpage
+\subsection{Diagrama PERT}
+
+\begin{figure}[h!]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=2.8cm and 2.2cm,
+    every node/.style={
+        draw,
+        rectangle,
+        rounded corners,
+        minimum width=2.6cm,
+        minimum height=0.9cm,
+        align=center,
+        font=\small,
+        inner sep=4pt
+    },
+    arrow/.style={-latex, thick, line width=1pt}
+]
+
+% ---- Fila 1 ----
+\node (A) {A\\Investigación HW};
+\node (B) [right=of A] {B\\Requerimientos};
+\node (C) [right=of B] {C\\Arquitectura\\SLAM/Multiagente};
+\node (D) [right=of C] {D\\Selección\\Raspberry Pi};
+
+% ---- Fila 2 ----
+\node (F) [below=of B] {F\\Percepción};
+\node (G) [right=of F] {G\\SLAM y\\Navegación};
+\node (H) [right=of G] {H\\Integración\\Multiagente};
+
+% ---- Fila 3 ----
+\node (K) [below=of G] {K\\Imagen Yocto};
+\node (L) [right=of K] {L\\Portado a\\Raspberry Pi};
+\node (M) [right=of L] {M\\Integración\\HW/SW};
+
+% ---- Fila 4 ----
+\node (N) [below=of L] {N\\Validación\\Final};
+\node (O) [right=of N] {O\\Documentación\\Final};
+
+% ---- Flechas horizontales y verticales ----
+\draw[arrow] (A) -- (B);
+\draw[arrow] (B) -- (C);
+\draw[arrow] (C) -- (D);
+\draw[arrow] (B) -- (F);
+\draw[arrow] (F) -- (G);
+\draw[arrow] (G) -- (H);
+\draw[arrow] (H) -- (K);
+\draw[arrow] (K) -- (L);
+\draw[arrow] (L) -- (M);
+\draw[arrow] (N) -- (O);
+
+% ---- Flechas diagonales curvas ----
+% D -> L con curva controlada
+\draw[arrow] (D.south) .. controls +(3,-5) and +(0,1.5) .. (L.north);
+
+% M -> N con curva controlada
+\draw[arrow] (M.south) .. controls +(0,-2) and +(0,1) .. (N.north);
+
+\end{tikzpicture}%
+}
+\caption{Diagrama PERT del proyecto con dependencias entre actividades}
+\label{fig:pert}
+\end{figure}
+
+\subsection{Entregables}
+
+En la Tabla \ref{tab:entregables} se presenta el listado de entregables asociados a los objetivos específicos y general del proyecto. Estos entregables reflejan los resultados obtenidos en cada una de las etapas del desarrollo, desde la selección de la plataforma hasta la integración final del sistema de navegación en la imagen personalizada de Yocto.
+
+\begin{table}[h!]
+  \caption{Entregables del proyecto}
+  \label{tab:entregables}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{|l|l|l|}
+  \hline
+  \textbf{Objetivo} &
+  \textbf{Entregable} &
+  \textbf{Fecha de entrega} \\ \hline
+
+  Específico 1 &
+  \begin{tabular}[c]{@{}l@{}}Documento de selección de la plataforma\\ Raspberry Pi y definición de requerimientos\\ de hardware y software.\end{tabular} &
+  Semana 2 \\ \hline
+
+  Específico 2 &
+  \begin{tabular}[c]{@{}l@{}}Implementación del sistema de navegación\\ en Python y validación funcional\\ en entorno de desarrollo.\end{tabular} &
+  Semana 10 \\ \hline
+
+  Específico 3 &
+  \begin{tabular}[c]{@{}l@{}}Sistema de navegación integrado y\\ ejecutándose sobre una imagen Yocto\\ personalizada en la Raspberry Pi.\end{tabular} &
+  Semana 15 \\ \hline
+
+  General 1 &
+  \begin{tabular}[c]{@{}l@{}}Repositorio en GitHub con el código fuente,\\ documentación técnica y resultados\\ obtenidos durante el desarrollo del proyecto.\end{tabular} &
+  Semana 16 \\ \hline
+
+  \end{tabular}%
+  }
+\end{table}
+
+\newpage
+
+
+\section{Uso de recursos y presupuesto}
+
+En el desarrollo de proyectos de ingeniería es fundamental identificar y analizar los recursos necesarios para su correcta ejecución. En esta sección se describen los recursos utilizados en el proyecto, así como aquellos que no representan un costo directo para el presupuesto debido a que son proporcionados por la institución.
+
+El presente proyecto se llevará a cabo en el Laboratorio de Sistemas Espaciales del Tecnológico de Costa Rica (SETEC-Lab), el cual dispone del espacio físico, servicios básicos e infraestructura necesaria para la ejecución de las actividades de desarrollo, pruebas e integración del sistema. El uso de estas instalaciones no genera un costo adicional para el proyecto.
+
+El rover móvil Galaxy, la Raspberry Pi y los sensores requeridos para la navegación y control del sistema son proporcionados por el Laboratorio, por lo que no se contempla su adquisición dentro del presupuesto. Asimismo, los sensores y el microcontrolador ESP32 forman parte integral del rover, por lo que no se consideran como elementos independientes a presupuestar.
+
+Para el desarrollo y validación de los flujos de trabajo propuestos se emplean los siguientes recursos:
+
+\subsection{Recursos materiales}
+\begin{itemize}
+  \item Rover móvil Galaxy proporcionado por el Laboratorio de Sistemas Espaciales.
+  \item Raspberry Pi para la ejecución del sistema embebido proporcionado por el Laboratorio de Sistemas Espaciales.
+  \item Sensores integrados al rover.
+  \item Computadora personal para desarrollo, compilación y pruebas.
+  \item Cables de conexión, adaptadores y accesorios menores.
+  \item Tarjeta microSD para el sistema operativo de la Raspberry Pi.
+\end{itemize}
+
+\subsection{Recursos de software}
+\begin{itemize}
+  \item Sistema operativo Linux.
+  \item Yocto Project para la generación de una imagen personalizada.
+  \item Herramientas de compilación cruzada.
+  \item Bibliotecas de control, visión por computadora y navegación de código abierto.
+\end{itemize}
+
+Todo el software utilizado en el proyecto corresponde a herramientas de código abierto o licencias académicas, por lo que no representa un costo económico para el presupuesto.
+
+\subsection{Recursos humanos}
+\begin{itemize}
+  \item Estudiante responsable del desarrollo del proyecto.
+  \item Profesor asesor del trabajo final de graduación.
+\end{itemize}
+
+\subsection{Costos de contingencia}
+Aunque los principales componentes del sistema son proporcionados por la institución, se considera un rubro de contingencia destinado a la posible sustitución o reparación de componentes menores en caso de fallas durante las etapas de prueba e integración, tales como cables, conectores o accesorios. Este rubro permite mitigar riesgos técnicos sin afectar el desarrollo del proyecto.
+
+\begin{table}[h!]
+\centering
+\caption{Presupuesto del proyecto}
+\label{tab:presupuesto}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{|l|l|c|r|r|}
+\hline
+\textbf{Categoría} & \textbf{Descripción} & \textbf{Cantidad} & \textbf{Costo unitario (₡)} & \textbf{Costo total (₡)} \\ \hline
+
+Materiales &
+Tarjeta microSD (32--64 GB) para Raspberry Pi & 1 & 10\,000 & 10\,000 \\ \hline
+
+Materiales &
+Cables, conectores y adaptadores menores & 1 & 15\,000 & 15\,000 \\ \hline
+
+Materiales &
+Accesorios de montaje y fijación & 1 & 10\,000 & 10\,000 \\ \hline
+
+Software &
+Herramientas de desarrollo, Yocto Project, bibliotecas de IA y SLAM (código abierto) & -- & 0 & 0 \\ \hline
+
+Infraestructura &
+Uso de laboratorio, equipo y servicios institucionales & -- & 0 & 0 \\ \hline
+
+Contingencia &
+Reposición o reparación de componentes menores & 1 & 25\,000 & 25\,000 \\ \hline
+
+\multicolumn{4}{|r|}{\textbf{Costo total estimado}} & \textbf{₡60\,000} \\ \hline
+\end{tabular}
+}
+\end{table}
+
+\newpage
+
+\bibliography{bibliografia.bib}
+\bibliographystyle{plain}
+
+\end{document}
