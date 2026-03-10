@@ -8,7 +8,7 @@ import tensorflow as tf
 # CONFIGURACIÓN
 # ==============================
 
-MODEL_PATH = "lunarModel_rpi5_cpu.tflite"
+MODEL_PATH = "lusnar_rpi5_cpu.tflite"
 IMAGE_DIR = "dataset_test"
 SAVE_DIR = "results"
 
@@ -18,7 +18,7 @@ SAVE_IMAGES = True
 IMG_DATASET_H = 240
 IMG_DATASET_W = 320
 
-MODEL_H = 256
+MODEL_H = 240
 MODEL_W = 320
 
 NAV_CLASSES = [0, 1]
@@ -140,10 +140,11 @@ def decide_direction(nav_mask, roi_mask):
 def colorize_mask(mask):
 
     colors = np.array([
-        [60,60,60],      # suelo
-        [0,255,255],     # small rocks
-        [0,0,255],       # large rocks
-        [255,200,0]      # sky
+        [60, 60, 60],     # class 0
+        [0, 255, 255],    # class 1
+        [0, 0, 255],      # class 2
+        [255, 200, 0],    # class 3
+        [0, 255, 0]       # class 4
     ], dtype=np.uint8)
 
     return colors[mask]
@@ -166,6 +167,8 @@ for idx, path in enumerate(image_paths):
     model_img = preprocess(img)
 
     mask = infer(model_img)
+    
+    print("Clases detectadas:", np.unique(mask))
 
     nav_mask = create_navigation_mask(mask)
 
