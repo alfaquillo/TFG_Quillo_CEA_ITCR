@@ -8,7 +8,7 @@ import tensorflow as tf
 # CONFIGURACIÓN
 # ==============================
 
-MODEL_PATH = "lusnar_rpi5_cpu.tflite"
+MODEL_PATH = "lunar_rpi5_cpu.tflite"
 IMAGE_DIR = "dataset_test"
 SAVE_DIR = "results"
 
@@ -31,7 +31,10 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 # CARGAR MODELO
 # ==============================
 
-interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+interpreter = tf.lite.Interpreter(
+    model_path="lunar_rpi5_cpu.tflite",
+    num_threads=8
+)
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
