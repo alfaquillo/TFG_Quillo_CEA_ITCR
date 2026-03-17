@@ -2,13 +2,23 @@ import os
 import cv2
 import numpy as np
 import time
-import tensorflow as tf
+
+# ==============================
+# IMPORT TFLITE (PC / RPI)
+# ==============================
+
+try:
+    import tflite_runtime.interpreter as tflite
+except ImportError:
+    import tensorflow as tflite
+
 
 # ==============================
 # CONFIGURACIÓN
 # ==============================
 
-MODEL_PATH = "lunar_rpi5_int8.tflite"
+#MODEL_PATH = "lunar_rpi5_int8.tflite" #RPI
+MODEL_PATH = "lunar_rpi5_float16.tflite" #INTELCPU
 IMAGE_DIR = "dataset_test"
 SAVE_DIR = "results"
 
@@ -21,24 +31,29 @@ IMG_DATASET_W = 320
 MODEL_H = 240
 MODEL_W = 320
 
-NAV_CLASSES = [0, 1]
+NAV_CLASSES = [0]
 
-FRAMES_PER_DECISION = 5
+FRAMES_PER_DECISION = 3
 
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+USE_TRAPEZOID = True
+
 
 # ==============================
 # CARGAR MODELO
 # ==============================
 
-interpreter = tf.lite.Interpreter(
-    model_path="lunar_rpi5_cpu.tflite",
-    num_threads=8
+interpreter = tflite.Interpreter(
+    model_path=MODEL_PATH,
+    num_threads=8   # recomendado para RPi5
 )
+
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
+
 
 # ==============================
 # CARGAR DATASET
@@ -52,17 +67,26 @@ image_paths = sorted([
 
 print("Imágenes encontradas:", len(image_paths))
 
+
 # ==============================
 # FUNCIONES
 # ==============================
 
 def preprocess(img):
 
-    model_img = cv2.resize(img, (MODEL_W, MODEL_H))
-    model_img = model_img.astype(np.float32) / 255.0
-    model_img = np.expand_dims(model_img, axis=0)
+    img = cv2.resize(img, (MODEL_W, MODEL_H))
 
-    return model_img
+    input_dtype = input_details[0]["dtype"]
+
+    if input_dtype == np.uint8:
+        img = img.astype(np.uint8)
+
+    else:  # float32
+        img = img.astype(np.float32) / 255.0
+
+    img = np.expand_dims(img, 0)
+
+    return img
 
 
 def infer(model_img):
@@ -74,9 +98,11 @@ def infer(model_img):
 
     mask = np.argmax(output, axis=-1)
 
-    mask = cv2.resize(mask.astype(np.uint8),
-                      (IMG_DATASET_W, IMG_DATASET_H),
-                      interpolation=cv2.INTER_NEAREST)
+    mask = cv2.resize(
+        mask.astype(np.uint8),
+        (IMG_DATASET_W, IMG_DATASET_H),
+        interpolation=cv2.INTER_NEAREST
+    )
 
     return mask
 
@@ -92,53 +118,75 @@ def trapezoid_roi(img_shape):
 
     h, w = img_shape
 
+    if not USE_TRAPEZOID:
+        full = np.ones((h, w), dtype=np.uint8)
+        return full, None
+
     mask = np.zeros((h, w), dtype=np.uint8)
 
-    top_y = int(h * 0.55)
-    bottom_y = int(h * 0.95)
+    top_y = int(h * 0.10)      # borde superior
+    bottom_y = int(h * 0.50)   # borde inferior
 
-    top_left = int(w * 0.40)
-    top_right = int(w * 0.60)
+    top_left = int(w * 0.15)   # ancho bordes superiores
+    top_right = int(w * 0.85)
 
-    bottom_left = int(w * 0.15)
-    bottom_right = int(w * 0.85)
+    bottom_left = int(w * 0.02)  # ancho bordes inferiores
+    bottom_right = int(w * 0.98)
 
-    pts = np.array([[
+    pts = np.array([
         (top_left, top_y),
         (top_right, top_y),
         (bottom_right, bottom_y),
         (bottom_left, bottom_y)
-    ]], dtype=np.int32)
+    ], dtype=np.int32)
 
-    cv2.fillPoly(mask, pts, 1)
+    cv2.fillPoly(mask, [pts], 1)
 
-    return mask
+    return mask, pts
 
 
 def decide_direction(nav_mask, roi_mask):
 
     region = nav_mask * roi_mask
-
     h, w = region.shape
 
+    left   = region[:, :int(w*0.4)]
     center = region[:, int(w*0.4):int(w*0.6)]
-    left = region[:, :int(w*0.4)]
-    right = region[:, int(w*0.6):]
+    right  = region[:, int(w*0.6):]
 
-    center_ratio = np.mean(center)
-    left_ratio = np.mean(left)
-    right_ratio = np.mean(right)
+    near_h = int(h*0.6)
 
-    if center_ratio > 0.20:
-        decision = "FORWARD"
-    else:
+    center_near = center[near_h:, :]
+    center_far  = center[:near_h, :]
+
+    center_ratio = 0.7*np.mean(center_near) + 0.3*np.mean(center_far)
+    left_ratio   = np.mean(left)
+    right_ratio  = np.mean(right)
+
+
+    MIN_FORWARD = 0.18
+    DELTA_SIDE  = 0.05     # diferencia mínima real entre lados
+    DELTA_CENTER = 0.06    # centro claramente peor para evitar avanzar
+
+    best_side = max(left_ratio, right_ratio)
+    side_diff = abs(left_ratio - right_ratio)
+
+    #  avanzar si centro es suficiente y no es claramente peor
+    if center_ratio > MIN_FORWARD and (best_side - center_ratio) < DELTA_CENTER:
+        decision = "ADELANTE"
+
+    #  girar solo si hay diferencia REAL entre lados
+    elif side_diff > DELTA_SIDE:
         if left_ratio > right_ratio:
-            decision = "LEFT"
+            decision = "IZQUIERDA"
         else:
-            decision = "RIGHT"
+            decision = "DERECHA"
+
+    # empate lateral → avanzar
+    else:
+        decision = "ADELANTE"
 
     return decision, center_ratio, left_ratio, right_ratio
-
 
 def colorize_mask(mask):
 
@@ -157,7 +205,7 @@ def colorize_mask(mask):
 # BENCHMARK
 # ==============================
 
-roi_mask = trapezoid_roi((IMG_DATASET_H, IMG_DATASET_W))
+roi_mask, roi_pts = trapezoid_roi((IMG_DATASET_H, IMG_DATASET_W))
 
 start = time.time()
 
@@ -170,7 +218,7 @@ for idx, path in enumerate(image_paths):
     model_img = preprocess(img)
 
     mask = infer(model_img)
-    
+
     print("Clases detectadas:", np.unique(mask))
 
     nav_mask = create_navigation_mask(mask)
@@ -179,31 +227,37 @@ for idx, path in enumerate(image_paths):
 
     decision_buffer.append(decision)
 
-    # decisión final cada 5 frames
+    # decisión final cada N frames
     if len(decision_buffer) == FRAMES_PER_DECISION:
 
         final_decision = max(set(decision_buffer), key=decision_buffer.count)
 
         print(
             f"Frame {idx} | "
-            f"center={c:.2f} left={l:.2f} right={r:.2f} | "
+            f"centro={c:.2f} izquierda={l:.2f} derecha={r:.2f} | "
             f"DECISION={final_decision}"
         )
 
         decision_buffer = []
 
+
     # ======================
     # DEBUG VISUAL
     # ======================
-
     if DEBUG:
 
         color_mask = colorize_mask(mask)
 
         overlay = cv2.addWeighted(img, 0.6, color_mask, 0.4, 0)
 
-        roi_vis = (roi_mask * 255).astype(np.uint8)
-        roi_vis = cv2.cvtColor(roi_vis, cv2.COLOR_GRAY2BGR)
+        if roi_pts is not None:
+            cv2.polylines(
+                overlay,
+                [roi_pts],
+                isClosed=True,
+                color=(255,0,255),   # magenta
+                thickness=2
+            )
 
         combined = np.hstack([
             img,
@@ -215,11 +269,11 @@ for idx, path in enumerate(image_paths):
         cv2.waitKey(1)
 
         if SAVE_IMAGES:
-
             out_path = os.path.join(SAVE_DIR, f"frame_{idx:04d}.png")
             cv2.imwrite(out_path, combined)
 
 end = time.time()
+
 
 # ==============================
 # RESULTADOS
