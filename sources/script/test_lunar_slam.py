@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import time
+import math
 
 # ==============================
 # IMPORT TFLITE (PC / RPI)
@@ -38,6 +39,73 @@ FRAMES_PER_DECISION = 3
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 USE_TRAPEZOID = True
+
+
+# ==============================
+# CONFIGURACIÓN SLAM 
+# ==============================
+
+CELL_M = 0.5
+MAP_W_M, MAP_H_M = 40, 40
+
+
+
+MAP_W = int(MAP_W_M / CELL_M)
+MAP_H = int(MAP_H_M / CELL_M)
+
+UNKNOWN, FREE, OBSTACLE, TRACE = 0,1,2,3
+grid = np.zeros((MAP_H, MAP_W), dtype=np.uint8)
+
+
+# Posición en metros
+x_m = 0.0
+y_m = 0.0
+
+# Orientación continua
+theta = math.pi / 2   # radianes
+
+# Parámetros de movimiento
+TURN_ANGLE_DEG = 2      # giro suave
+STEP_METERS    = 0.5    # avance por decisión
+
+trajectory = [(x_m, y_m, theta)]
+
+origin_x = MAP_W // 2
+origin_y = MAP_H // 2
+
+def meters_to_cell():
+    rx = int(origin_x + x_m / CELL_M)
+    ry = int(origin_y - y_m / CELL_M)
+    return rx, ry
+
+def expand_map_if_needed(rx, ry):
+    global grid, origin_x, origin_y, MAP_W, MAP_H
+
+    pad = 40  # celdas nuevas por lado
+
+    expand_left   = rx < 5
+    expand_right  = rx > MAP_W - 6
+    expand_top    = ry < 5
+    expand_bottom = ry > MAP_H - 6
+
+    if not (expand_left or expand_right or expand_top or expand_bottom):
+        return
+
+    new_h = MAP_H + pad*(expand_top + expand_bottom)
+    new_w = MAP_W + pad*(expand_left + expand_right)
+
+    new_grid = np.zeros((new_h, new_w), dtype=np.uint8)
+
+    off_y = pad if expand_top else 0
+    off_x = pad if expand_left else 0
+
+    new_grid[off_y:off_y+MAP_H, off_x:off_x+MAP_W] = grid
+
+    grid = new_grid
+    MAP_H, MAP_W = new_grid.shape
+
+    origin_x += off_x
+    origin_y += off_y
 
 
 # ==============================
@@ -140,7 +208,13 @@ def trapezoid_roi(img_shape):
         (bottom_left, bottom_y)
     ], dtype=np.int32)
 
-    cv2.fillPoly(mask, [pts], 1)
+    cv2.fillPoly(
+        img=mask,
+        pts=[pts.astype(np.int32)],
+        color=(1,)
+    )
+
+    #cv2.fillPoly(mask, [pts], 1)
 
     return mask, pts
 
@@ -200,6 +274,74 @@ def colorize_mask(mask):
 
     return colors[mask]
 
+# ==============================
+# FUNCIONES SLAM
+# ==============================
+def move_rover(decision):
+    global x_m, y_m, theta
+
+    # Girar suave
+    if decision == "IZQUIERDA":
+        theta += math.radians(TURN_ANGLE_DEG)
+    elif decision == "DERECHA":
+        theta -= math.radians(TURN_ANGLE_DEG)
+
+    # Avanzar SIEMPRE (como rover real)
+    dx = STEP_METERS * math.cos(theta)
+    dy = STEP_METERS * math.sin(theta)
+
+    x_m += dx
+    y_m += dy
+
+    trajectory.append((x_m, y_m, theta))
+
+
+def integrate_observation(nav_mask):
+    global rx, ry
+
+    rx, ry = meters_to_cell()
+    expand_map_if_needed(rx, ry)
+    rx, ry = meters_to_cell()
+
+    if not (0 <= rx < MAP_W and 0 <= ry < MAP_H):
+        return
+
+    grid[ry, rx] = TRACE  # marcar trayectoria
+
+    h, w = nav_mask.shape
+    mini = nav_mask[::16, ::16]
+
+    mh, mw = mini.shape
+
+    for r in range(mh):
+        for c in range(mw):
+
+            gx = int(rx + (c - mw//2))
+            gy = int(ry - (mh - r))
+
+            if 0 <= gx < MAP_W and 0 <= gy < MAP_H:
+                if mini[r,c] == 1:
+                    grid[gy,gx] = FREE
+                else:
+                    grid[gy,gx] = OBSTACLE
+
+
+def draw_slam():
+    vis = np.zeros((MAP_H, MAP_W, 3), dtype=np.uint8)
+
+    
+    vis[grid==UNKNOWN]  = (40,40,40)       # gris oscuro
+    vis[grid==FREE]     = (60,60,60)       # igual a clase 0
+    vis[grid==OBSTACLE] = (0,0,255)        # rojo igual
+    vis[grid==TRACE]    = (0,255,255)      # amarillo trayectoria
+
+    rx, ry = meters_to_cell()
+
+    if 0 <= rx < MAP_W and 0 <= ry < MAP_H:
+        vis[ry,rx] = (0,255,0)             # rover verde
+
+    big = cv2.resize(vis, None, fx=6, fy=6, interpolation=cv2.INTER_NEAREST)
+    return big
 
 # ==============================
 # BENCHMARK
@@ -227,10 +369,13 @@ for idx, path in enumerate(image_paths):
 
     decision_buffer.append(decision)
 
+    integrate_observation(nav_mask)
+
     # decisión final cada N frames
     if len(decision_buffer) == FRAMES_PER_DECISION:
 
         final_decision = max(set(decision_buffer), key=decision_buffer.count)
+        move_rover(final_decision)
 
         print(
             f"Frame {idx} | "
@@ -266,6 +411,8 @@ for idx, path in enumerate(image_paths):
         ])
 
         cv2.imshow("debug", combined)
+        slam_view = draw_slam()
+        cv2.imshow("SLAM", slam_view)
         cv2.waitKey(1)
 
         if SAVE_IMAGES:
