@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import time
 import math
+import csv
 
 # ==============================
 # IMPORT TFLITE (PC / RPI)
@@ -53,8 +54,11 @@ MAP_W_M, MAP_H_M = 40, 40
 MAP_W = int(MAP_W_M / CELL_M)
 MAP_H = int(MAP_H_M / CELL_M)
 
-UNKNOWN, FREE, OBSTACLE, TRACE = 0,1,2,3
-grid = np.zeros((MAP_H, MAP_W), dtype=np.uint8)
+UNKNOWN = 255     
+TRACE   = 254
+ROVER   = 253
+
+grid = np.full((MAP_H, MAP_W), UNKNOWN, dtype=np.uint8)
 
 
 # Posición en metros
@@ -265,10 +269,10 @@ def decide_direction(nav_mask, roi_mask):
 def colorize_mask(mask):
 
     colors = np.array([
-        [60, 60, 60],     # class 0
-        [0, 255, 255],    # class 1
-        [0, 0, 255],      # class 2
-        [255, 200, 0],    # class 3
+        [60, 60, 60],     # class 0 → gris medio (suelo navegable)
+        [0, 255, 255],    # class 1 → amarillo brillante (crateres)
+        [0, 0, 255],      # class 2 → rojo (obstaculos rocosos)
+        [255, 200, 0],    # class 3 → azul claro / celeste (montañas / elevaciones)
         [0, 255, 0]       # class 4
     ], dtype=np.uint8)
 
@@ -296,7 +300,7 @@ def move_rover(decision):
     trajectory.append((x_m, y_m, theta))
 
 
-def integrate_observation(nav_mask):
+def integrate_observation(mask):
     global rx, ry
 
     rx, ry = meters_to_cell()
@@ -306,11 +310,9 @@ def integrate_observation(nav_mask):
     if not (0 <= rx < MAP_W and 0 <= ry < MAP_H):
         return
 
-    grid[ry, rx] = TRACE  # marcar trayectoria
+    grid[ry, rx] = TRACE
 
-    h, w = nav_mask.shape
-    mini = nav_mask[::16, ::16]
-
+    mini = mask[::16, ::16]   # reducir resolución
     mh, mw = mini.shape
 
     for r in range(mh):
@@ -320,25 +322,35 @@ def integrate_observation(nav_mask):
             gy = int(ry - (mh - r))
 
             if 0 <= gx < MAP_W and 0 <= gy < MAP_H:
-                if mini[r,c] == 1:
-                    grid[gy,gx] = FREE
-                else:
-                    grid[gy,gx] = OBSTACLE
+                grid[gy, gx] = mini[r, c] 
 
 
 def draw_slam():
+
+    colors = np.array([
+        [60, 60, 60],     # class 0 → gris medio (suelo navegable)
+        [0, 255, 255],    # class 1 → amarillo brillante (crateres)
+        [0, 0, 255],      # class 2 → rojo (obstaculos rocosos)
+        [255, 200, 0],    # class 3 → azul claro / celeste (montañas / elevaciones)
+        [0, 0, 255]       # class 4 → rojo 
+    ], dtype=np.uint8)
+
     vis = np.zeros((MAP_H, MAP_W, 3), dtype=np.uint8)
 
-    
-    vis[grid==UNKNOWN]  = (40,40,40)       # gris oscuro
-    vis[grid==FREE]     = (60,60,60)       # igual a clase 0
-    vis[grid==OBSTACLE] = (0,0,255)        # rojo igual
-    vis[grid==TRACE]    = (0,255,255)      # amarillo trayectoria
+    # pintar clases reales
+    known = (grid != UNKNOWN) & (grid != TRACE) & (grid != ROVER)
+    vis[known] = colors[grid[known]]
 
+    # zonas desconocidas
+    vis[grid == UNKNOWN] = (40, 40, 40)
+
+    # trayectoria
+    vis[grid == TRACE] = (255, 0, 255)   # magenta
+
+    # rover
     rx, ry = meters_to_cell()
-
     if 0 <= rx < MAP_W and 0 <= ry < MAP_H:
-        vis[ry,rx] = (0,255,0)             # rover verde
+        vis[ry, rx] = (0, 255, 0)        # verde brillante
 
     big = cv2.resize(vis, None, fx=6, fy=6, interpolation=cv2.INTER_NEAREST)
     return big
@@ -369,7 +381,7 @@ for idx, path in enumerate(image_paths):
 
     decision_buffer.append(decision)
 
-    integrate_observation(nav_mask)
+    integrate_observation(mask)
 
     # decisión final cada N frames
     if len(decision_buffer) == FRAMES_PER_DECISION:
@@ -410,7 +422,7 @@ for idx, path in enumerate(image_paths):
             overlay
         ])
 
-        cv2.imshow("debug", combined)
+        cv2.imshow("Segmentation", combined)
         slam_view = draw_slam()
         cv2.imshow("SLAM", slam_view)
         cv2.waitKey(1)
@@ -418,6 +430,13 @@ for idx, path in enumerate(image_paths):
         if SAVE_IMAGES:
             out_path = os.path.join(SAVE_DIR, f"frame_{idx:04d}.png")
             cv2.imwrite(out_path, combined)
+            final_map = draw_slam()
+            cv2.imwrite("slam_final.png", final_map)
+            with open("trajectory.csv", "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["x_m", "y_m", "theta_rad"])
+                for x, y, th in trajectory:
+                    writer.writerow([x, y, th])
 
 end = time.time()
 
