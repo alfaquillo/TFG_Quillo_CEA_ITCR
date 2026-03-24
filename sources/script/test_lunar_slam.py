@@ -98,7 +98,7 @@ def expand_map_if_needed(rx, ry):
     new_h = MAP_H + pad*(expand_top + expand_bottom)
     new_w = MAP_W + pad*(expand_left + expand_right)
 
-    new_grid = np.zeros((new_h, new_w), dtype=np.uint8)
+    new_grid = np.full((new_h, new_w), UNKNOWN, dtype=np.uint8)
 
     off_y = pad if expand_top else 0
     off_x = pad if expand_left else 0
@@ -328,31 +328,51 @@ def integrate_observation(mask):
 def draw_slam():
 
     colors = np.array([
-        [60, 60, 60],     # class 0 → gris medio (suelo navegable)
-        [0, 255, 255],    # class 1 → amarillo brillante (crateres)
-        [0, 0, 255],      # class 2 → rojo (obstaculos rocosos)
-        [255, 200, 0],    # class 3 → azul claro / celeste (montañas / elevaciones)
-        [0, 0, 255]       # class 4 → rojo 
+        [60, 60, 60],     # navegable
+        [0, 255, 255],    # rocas
+        [0, 0, 255],      # cráter
+        [255, 200, 0],    # montañas
+        [255,255,0]       # cielo (no usado)
     ], dtype=np.uint8)
 
     vis = np.zeros((MAP_H, MAP_W, 3), dtype=np.uint8)
 
-    # pintar clases reales
-    known = (grid != UNKNOWN) & (grid != TRACE) & (grid != ROVER)
+    known = (grid != UNKNOWN) & (grid != TRACE)
     vis[known] = colors[grid[known]]
 
-    # zonas desconocidas
-    vis[grid == UNKNOWN] = (40, 40, 40)
+    vis[grid == UNKNOWN] = (40,40,40)
+    vis[grid == TRACE]   = (255,0,255)
 
-    # trayectoria
-    vis[grid == TRACE] = (255, 0, 255)   # magenta
-
-    # rover
     rx, ry = meters_to_cell()
-    if 0 <= rx < MAP_W and 0 <= ry < MAP_H:
-        vis[ry, rx] = (0, 255, 0)        # verde brillante
 
-    big = cv2.resize(vis, None, fx=6, fy=6, interpolation=cv2.INTER_NEAREST)
+    # ===============================
+    # VENTANA CENTRADA EN EL ROVER
+    # ===============================
+    VIEW = 140
+    half = VIEW // 2
+
+    min_x = rx - half
+    max_x = rx + half
+    min_y = ry - half
+    max_y = ry + half
+
+    canvas = np.zeros((VIEW, VIEW, 3), dtype=np.uint8)
+
+    src_x1 = max(min_x, 0)
+    src_y1 = max(min_y, 0)
+    src_x2 = min(max_x, MAP_W)
+    src_y2 = min(max_y, MAP_H)
+
+    dst_x1 = src_x1 - min_x
+    dst_y1 = src_y1 - min_y
+
+    canvas[dst_y1:dst_y1+(src_y2-src_y1),
+           dst_x1:dst_x1+(src_x2-src_x1)] = vis[src_y1:src_y2, src_x1:src_x2]
+
+    # rover SIEMPRE en el centro visual
+    canvas[half, half] = (0,255,0)
+
+    big = cv2.resize(canvas, None, fx=6, fy=6, interpolation=cv2.INTER_NEAREST)
     return big
 
 # ==============================
@@ -432,11 +452,7 @@ for idx, path in enumerate(image_paths):
             cv2.imwrite(out_path, combined)
             final_map = draw_slam()
             cv2.imwrite("slam_final.png", final_map)
-            with open("trajectory.csv", "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["x_m", "y_m", "theta_rad"])
-                for x, y, th in trajectory:
-                    writer.writerow([x, y, th])
+            np.savetxt("full_map_classes.csv", grid, fmt="%d", delimiter=",")
 
 end = time.time()
 

@@ -22,4 +22,5 @@ __pycache__/
 
 # Archivos de Imagenes
 *.png
+*.PNG
 
