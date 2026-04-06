@@ -84,7 +84,7 @@ extern String videoUrl;
 
 /* Set the camera flip */
 #define CAMERA_VERTICAL_FLIP 0
-#define CAMERA_HORIZONTAL_FLIP 1
+#define CAMERA_HORIZONTAL_FLIP 0
 
 /* Set the SERIAL_TIMEOUT (ms) */
 #define SERIAL_TIMEOUT 100  // timeout 100ms

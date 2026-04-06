@@ -1,96 +1,122 @@
-import asyncio
-import json
 import cv2
+import asyncio
 import websockets
-import threading
+import json
+import time
 
-ROVER_URI = "ws://192.168.4.1:8765"
-CAM_URI = "http://192.168.4.1:9000/mjpg"
+ROVER_URI = "ws://10.20.40.150:8765"
+CAM_URI = "http://10.20.40.150:9000/mjpg"
 
-# =====================
-# Comando compartido
-# =====================
-cmd_actual = {"K": 10, "Q": 10, "D": 90, "M": 0, "E": 0, "F": 0, "duracion_ms": 500}
-ack_event = asyncio.Event()  # Señal para sincronizar envío
+VEL_MAX = 20
+CMD_TIME = 250            # ms duración del movimiento
+SEND_INTERVAL = 0.40      # ~2.5 Hz
+KEY_TIMEOUT = 0.18        # simular liberación tecla
 
-# =====================
-# Visualización de la cámara
-# =====================
-def ver_camara():
-    cap = cv2.VideoCapture(CAM_URI, cv2.CAP_FFMPEG)
-    
+keys = set()
+key_times = {}
+ultimo_envio = 0
+
+# ======================
+# MEZCLA DIFERENCIAL TANQUE
+# ======================
+def calcular_motores():
+    avance = 0
+    giro = 0
+
+    if ord('w') in keys: avance = 1
+    if ord('s') in keys: avance = -1
+    if ord('a') in keys: giro = -1
+    if ord('d') in keys: giro = 1
+
+    # si no hay avance, permitir giro leve en sitio
+    if avance == 0 and giro != 0:
+        izq = giro * VEL_MAX * 0.4
+        der =  -giro * VEL_MAX * 0.4
+        return int(izq), int(der)
+
+    # giro suave tipo vehículo
+    giro_factor = 0.4 * giro  # qué tan cerrada la curva
+
+    izq = avance * VEL_MAX * (1 - giro_factor)
+    der = avance * VEL_MAX * (1 + giro_factor)
+
+    return int(izq), int(der)
+
+# ======================
+# LOOP PRINCIPAL
+# ======================
+async def main():
+
+    global ultimo_envio
+
+    cap = cv2.VideoCapture(CAM_URI)
     if not cap.isOpened():
-        print("No se pudo abrir la cámara")
+        print("No se pudo abrir cámara")
         return
 
-    cv2.namedWindow("Cámara Rover", cv2.WINDOW_NORMAL)
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("No se recibió frame")
-            break
-        frame = cv2.flip(frame, -1)
-        cv2.imshow("Cámara Rover", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    async with websockets.connect(
+        ROVER_URI,
+        ping_interval=None,
+        ping_timeout=None
+    ) as ws:
 
-    cap.release()
-    cv2.destroyAllWindows()
+        print("Modo manual limitado ~2.5 Hz")
+        print("WASD mover | Espacio frenar | Q salir")
 
-# =====================
-# Loop de envío de comandos sincronizado
-# =====================
-async def enviar_loop(ws):
-    global cmd_actual
-    while True:
-        await ack_event.wait()           # Espera que el rover envíe un mensaje
-        ack_event.clear()
-        try:
-            await ws.send(json.dumps(cmd_actual))
-        except websockets.ConnectionClosed:
-            print("Conexión cerrada durante el envío")
-            break
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Sin frame")
+                break
+            
+            cv2.imshow("Rover Cam", frame)
 
-# =====================
-# Loop de recepción de mensajes
-# =====================
-async def recibir_loop(ws):
-    global ack_event
-    while True:
-        try:
-            resp = await ws.recv()
-            print("Rover dice:", resp)
-            ack_event.set()  # Señal para enviar el próximo comando
-        except websockets.ConnectionClosed:
-            print("Conexión cerrada por el rover")
-            break
+            key = cv2.waitKey(1) & 0xFF
 
-# =====================
-# Función principal
-# =====================
-async def mover_rover_loop():
-    try:
-        async with websockets.connect(ROVER_URI, ping_interval=5, ping_timeout=10) as ws:
-            print("Conectado al rover")
-            # Inicializamos evento para enviar el primer comando
-            ack_event.set()
-            await asyncio.gather(
-                enviar_loop(ws),
-                recibir_loop(ws)
-            )
-    except websockets.ConnectionClosedError as e:
-        print("Error de conexión:", e)
+            # registrar pulsación
+            if key != 255:
+                keys.add(key)
+                key_times[key] = time.time()
 
-# =====================
-# Main
-# =====================
-if __name__ == "__main__":
-    # Cámara en thread independiente
-    cam_thread = threading.Thread(target=ver_camara, daemon=True)
-    cam_thread.start()
+            # limpiar teclas expiradas (simular release)
+            ahora = time.time()
+            for k in list(keys):
+                if ahora - key_times.get(k, 0) > KEY_TIMEOUT:
+                    keys.discard(k)
 
-    # Loop principal de movimiento
-    try:
-        asyncio.run(mover_rover_loop())
-    except KeyboardInterrupt:
-        print("Programa interrumpido por el usuario")
+            # freno inmediato
+            if key == ord(' '):
+                keys.clear()
+
+            if key == ord('q'):
+                break
+
+            # limitar frecuencia de envío
+            if ahora - ultimo_envio < SEND_INTERVAL:
+                continue
+
+            ultimo_envio = ahora
+
+            izq, der = calcular_motores()
+
+            cmd = {
+                "K": izq,
+                "Q": der*1.3,
+                "D": 90,
+                "M": 0,
+                "E": 0,
+                "F": 0,
+                "duracion_ms": CMD_TIME
+            }
+
+            await ws.send(json.dumps(cmd))
+
+            try:
+                await asyncio.wait_for(ws.recv(), timeout=1.0)
+            except asyncio.TimeoutError:
+                print(" ACK tardío → posible saturación ESP32/Serial")
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+asyncio.run(main())

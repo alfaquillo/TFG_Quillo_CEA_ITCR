@@ -4,15 +4,7 @@ import numpy as np
 import time
 import math
 import csv
-
-# ==============================
-# IMPORT TFLITE (PC / RPI)
-# ==============================
-
-try:
-    import tflite_runtime.interpreter as tflite
-except ImportError:
-    import tensorflow as tflite
+import tflite_runtime.interpreter as tflite
 
 
 # ==============================
