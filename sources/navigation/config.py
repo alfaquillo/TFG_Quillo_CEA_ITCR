@@ -33,4 +33,12 @@ ROVER = 253
 TURN_ANGLE_DEG = 2
 STEP_METERS = 0.5
 
+#Sensors
+
+WS_URI = "ws://10.20.40.150:8765"
+
+PING_INTERVAL = 0.1  # segundos
+
+DEFAULT_IR = 0
+DEFAULT_LIDAR = -1
 os.makedirs(SAVE_DIR, exist_ok=True)

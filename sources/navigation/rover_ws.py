@@ -1,11 +1,10 @@
 import asyncio
 import websockets
 import json
-
+from config import WS_URI
 # ======================
 # CONFIG
 # ======================
-ROVER_URI = "ws://10.20.40.150:8765"
 
 VEL_MAX = 5
 CMD_TIME = 250   # ms
@@ -40,7 +39,7 @@ def decision_to_motors(decision):
 # ======================
 class RoverClient:
 
-    def __init__(self, uri=ROVER_URI):
+    def __init__(self, uri=WS_URI):
         self.uri = uri
         self.ws = None
 
