@@ -37,7 +37,6 @@ STEP_METERS = 0.5
 
 WS_URI = "ws://10.20.40.150:8765"
 
-PING_INTERVAL = 0.1  # segundos
 
 DEFAULT_IR = 0
 DEFAULT_LIDAR = -1

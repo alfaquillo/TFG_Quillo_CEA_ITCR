@@ -1,7 +1,5 @@
-import asyncio
-import json
-import websockets
-from config import WS_URI, PING_INTERVAL, DEFAULT_IR, DEFAULT_LIDAR
+import time
+from config import DEFAULT_IR, DEFAULT_LIDAR
 
 
 class Sensors:
@@ -11,59 +9,82 @@ class Sensors:
         self.dist = DEFAULT_LIDAR
         self.connected = False
 
-    async def connect(self):
-        while True:
-            try:
-                async with websockets.connect(WS_URI) as ws:
-                    self.connected = True
-                    print("Sensores conectados\n")
+        self.lidar_block_count = 0
+        self.current_action = "LIBRE"
+        self.action_until = 0
 
-                    await asyncio.gather(
-                        self._sender(ws),
-                        self._receiver(ws)
-                    )
+    # -----------------------------
+    # ACTUALIZACIÓN DESDE WEBSOCKET
+    # -----------------------------
+    def update(self, data):
 
-            except Exception as e:
-                self.connected = False
-                print("Error sensores:", e)
-                await asyncio.sleep(1)
+        if not isinstance(data, dict):
+            return
 
-    async def _sender(self, ws):
-        while True:
-            try:
-                await ws.send(json.dumps({"ping": 1}))
-                await asyncio.sleep(PING_INTERVAL)
-            except:
-                break
+        if "O" not in data:
+            return
 
-    async def _receiver(self, ws):
-        async for message in ws:
+        self.prox_izq = data.get("N", DEFAULT_IR)
+        self.prox_der = data.get("P", DEFAULT_IR)
+        self.dist = data.get("O", DEFAULT_LIDAR)
 
-            if isinstance(message, bytes):
-                continue
+        self.connected = True
 
-            if not message or not message.strip():
-                continue
+    # -----------------------------
+    # LÓGICA DE EVASIÓN
+    # -----------------------------
+    def decide_avoidance(self, th_dist=30):
 
-            try:
-                data = json.loads(message)
-            except:
-                continue
+        now = time.time()
 
-            if not isinstance(data, dict):
-                continue
+        print(f"[SENS] IZQ={self.prox_izq} DER={self.prox_der} LIDAR={self.dist}")
 
-            if "O" not in data:
-                continue
-            
-            self.prox_izq = data.get("N", DEFAULT_IR)
-            self.prox_der = data.get("P", DEFAULT_IR)
-            self.dist = data.get("O", DEFAULT_LIDAR)
+        if not self.connected:
+            return "LIBRE"
 
-    def get_data(self):
-        return {
-            "izq": self.prox_izq,
-            "der": self.prox_der,
-            "dist": self.dist,
-            "connected": self.connected
-        }
+        # mantener acción
+        if now < self.action_until:
+            return self.current_action
+
+        # ----------------------------------
+        # LÓGICA LIDAR CON HYSTERESIS
+        # ----------------------------------
+
+        TH_ENTER = 30
+        TH_EXIT = 45
+
+        
+
+        # si estamos retrocediendo → evaluar salida
+        if self.current_action == "RETROCEDER":
+
+            if self.dist == -1 or self.dist > TH_EXIT:
+                self.current_action = "LIBRE"
+                return "LIBRE"
+
+            return "RETROCEDER"
+
+
+        # si NO estamos retrocediendo → evaluar entrada
+        if self.dist != -1 and self.dist < TH_ENTER:
+            self.current_action = "RETROCEDER"
+            self.action_until = now + 0.8
+            return "RETROCEDER"
+        
+        # timeout de seguridad
+        if self.current_action == "RETROCEDER" and now > self.action_until:
+            self.current_action = "LIBRE"
+            return "LIBRE"
+
+        # IR
+        if self.prox_izq == 1:
+            self.current_action = "DERECHA"
+            self.action_until = now + 1
+            return self.current_action
+
+        if self.prox_der == 1:
+            self.current_action = "IZQUIERDA"
+            self.action_until = now + 1
+            return self.current_action
+
+        return "LIBRE"
