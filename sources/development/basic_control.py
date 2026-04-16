@@ -4,11 +4,11 @@ import websockets
 import json
 import time
 
-ROVER_URI = "ws://10.20.40.150:8765"
-CAM_URI = "http://10.20.40.150:9000/mjpg"
+ROVER_URI = "ws://192.168.4.1:8765"
+CAM_URI = "http://192.168.4.1:9000/mjpg"
 
 VEL_MAX = 20
-CMD_TIME = 250            # ms duración del movimiento
+CMD_TIME = 250          # ms duración del movimiento
 SEND_INTERVAL = 0.40      # ~2.5 Hz
 KEY_TIMEOUT = 0.18        # simular liberación tecla
 

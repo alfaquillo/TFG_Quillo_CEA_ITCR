@@ -124,7 +124,7 @@ async def main():
             cv2.imshow("SLAM", draw_slam())
             cv2.waitKey(1)
 
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.3)
 
     end = time.time()
 

@@ -7,7 +7,7 @@ from sensors import Sensors
 from navigation import decide_direction
 
 VEL_MAX = 5
-CMD_TIME = 400
+CMD_TIME = 300
 bias_d = 2.3
 bias_i = 1
 OVERRIDE_CYCLES = 3
@@ -47,7 +47,7 @@ class RoverClient:
         self.override_timer = 0
 
         self.current_command = "nav_ADELANTE"
-        self.send_interval = 0.08  # 80 ms
+        self.send_interval = 0.3 # 80 ms
 
     async def connect(self):
         self.ws = await websockets.connect(
@@ -58,15 +58,7 @@ class RoverClient:
         print("Conectado al rover")
 
         # servo inicial
-        await self.ws.send(json.dumps({
-                "K": 0,
-                "Q": 0,
-                "D": 90,
-                "M": 1,
-                "E": 0,
-                "F": 0,
-                "duracion_ms": 1
-            }))
+        await self.ws.send(json.dumps({"D": 90}))
 
         asyncio.create_task(self.ping_loop())
         asyncio.create_task(self.command_stream())
@@ -81,10 +73,10 @@ class RoverClient:
         while True:
             try:
                 await self.ws.send(json.dumps({"ping": 1}))
-                await asyncio.sleep(0.5)  
+                await asyncio.sleep(1)  
             except Exception as e:
                 print("Error ping:", e)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
 
     # ----------------------
     # RECEPCIÓN (sensores)
@@ -146,13 +138,13 @@ class RoverClient:
             izq, der = decision_to_motors(decision)
 
             cmd = {
-                "K": izq * bias_i,
-                "Q": der * bias_d,
-                "D": 90,
-                "M": 0,
-                "E": 0,
-                "F": 0,
-                "duracion_ms": CMD_TIME
+            "K": int(round(izq * bias_i)),
+            "Q": int(round(der * bias_d)),
+            "D": 90,
+            "M": 1,
+            "E": 0,
+            "F": 0,
+            "duracion_ms": int(CMD_TIME)
             }
 
             print(f"CMD -> {decision} | K:{cmd['K']} Q:{cmd['Q']}")

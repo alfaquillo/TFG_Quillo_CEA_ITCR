@@ -13,24 +13,24 @@
 using namespace MAES;
 
 /* ------------------- Configuración WiFi STA (DEBUGGING)------------------- */
-#define WIFI_MODE WIFI_MODE_STA
-#define SSID      "homeIOT"
-#define PASSWORD  "HOMEiot@"
-#define NAME      "GalaxyRVR"
-#define TYPE      "GalaxyRVR"
-#define PORT      "8765"
-#define WS_HEADER "WS+"
-
-
-
-/* ------------------- Configuración WiFi AP (PRODUCCION)------------------- */
-//#define WIFI_MODE WIFI_MODE_AP
-//#define SSID      "GalaxyRVR_MAS"
-//#define PASSWORD  "111222333"
+//#define WIFI_MODE WIFI_MODE_STA
+//#define SSID      "homeIOT"
+//#define PASSWORD  "HOMEiot@"
 //#define NAME      "GalaxyRVR"
 //#define TYPE      "GalaxyRVR"
 //#define PORT      "8765"
 //#define WS_HEADER "WS+"
+
+
+
+/* ------------------- Configuración WiFi AP (PRODUCCION)------------------- */
+#define WIFI_MODE WIFI_MODE_AP
+#define SSID      "GalaxyRVR_MAS"
+#define PASSWORD  "111222333"
+#define NAME      "GalaxyRVR"
+#define TYPE      "GalaxyRVR"
+#define PORT      "8765"
+#define WS_HEADER "WS+"
 
 
 /* ------------------- Modos de operación ------------------- */
