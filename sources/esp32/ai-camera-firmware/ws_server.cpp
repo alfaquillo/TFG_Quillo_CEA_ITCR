@@ -3,238 +3,283 @@
 #include "led_status.hpp"
 #include "Ticker.h"
 
-void onWebSocketEvent(uint8_t cn, WStype_t type, uint8_t* payload, size_t length);
-
+/* ----------- WebSocket ----------- */
 WebSocketsServer ws = WebSocketsServer(8765);
-uint8_t client_num = 0;
+
+uint8_t client_num = 0xFF;
 bool ws_connected = false;
 
+/* ----------- Estado ----------- */
+WS_STATE ws_state = DISCONNECTED;
+
+/* ----------- Info ----------- */
 String ws_name = "";
 String ws_type = "";
-String ws_check= "SC";
+String ws_check = "SC";
 String videoUrl = "";
 
-Ticker pingPongTimer; // timer for checing ping_pong
-bool isPingPingOK = true;
-uint32_t lastPingPong = 0;
-uint32_t last_pong_time = 0;
-uint16_t PONG_INTERVAL = 500;
+/* ----------- Timing ----------- */
+Ticker timer;
 
+uint32_t lastPingSent = 0;
+uint32_t lastPongReceived = 0;
+uint32_t last_valid_cmd_time = 0;
+
+uint32_t last_process_time = 0;
 uint32_t last_send_time = 0;
-uint16_t SEND_INTERVAL = 50;
 
+const uint32_t PING_INTERVAL = 5000;
+
+/* ----------- Secuencia ----------- */
+uint32_t last_seq = 0;
+
+/* ----------- Utils ----------- */
 String intToString(uint8_t * value, size_t length) {
   String buf;
-  for (int i=0; i<length; i++){
+  for (size_t i = 0; i < length; i++){
     buf += (char)value[i];
   }
   return buf;
 }
 
-void checkPingPong(){
-  if (ws_connected == false) {
-    return;
+/* ----------- STOP seguro ----------- */
+void sendSTOP() {
+  Serial.println("WS+0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0");
+}
+
+/* ----------- Supervisión ----------- */
+void supervisionTask() {
+  uint32_t now = millis();
+
+  /* ---- Heartbeat ---- */
+  if (ws_connected && client_num != 0xFF) {
+
+    if (now - lastPingSent > PING_INTERVAL) {
+      StaticJsonDocument<64> ping;
+      ping["ping"] = now;
+
+      String out;
+      serializeJson(ping, out);
+      ws.sendTXT(client_num, out);
+
+      lastPingSent = now;
+    }
+
+    if (now - lastPongReceived > TIMEOUT) {
+      Serial.println("[DISCONNECTED] timeout (no pong)");
+
+      ws.disconnect(client_num);
+      ws_connected = false;
+      client_num = 0xFF;
+
+      ws_state = DISCONNECTED;
+      sendSTOP();
+    }
   }
-  if (millis() - lastPingPong > TIMEOUT) {
-    lastPingPong = millis();
-    isPingPingOK = false;
-    #ifdef DEBUG
-    Serial.println("[DEBUG] [WS] PingPong timeout");
-    #endif
-    Serial.print("[DISCONNECTED] timeout");
+
+  /* ---- Timeout de comandos ---- */
+  if (ws_state == VALID_STREAM) {
+    if (now - last_valid_cmd_time > CMD_TIMEOUT) {
+      Serial.println("[STALE] command timeout");
+
+      ws_state = STALE;
+      sendSTOP();
+    }
   }
 }
 
+/* ----------- Clase ----------- */
 WS_Server::WS_Server() {}
 
 void WS_Server::close() {
   ws_connected = false;
+  client_num = 0xFF;
+  ws_state = DISCONNECTED;
   ws.close();
-  delay(10);
 }
 
 void WS_Server::begin(int port, String _name, String _type, String _check) {
   ws_name = _name;
   ws_type = _type;
-  ws_check= _check;
-  // ws = WebSocketsServer(port);
+  ws_check = _check;
+
   ws.begin();
-  ws.onEvent(onWebSocketEvent);
-  pingPongTimer.attach_ms(100, checkPingPong);
+  ws.onEvent([](uint8_t cn, WStype_t type, uint8_t * payload, size_t length) {
+
+    client_num = cn;
+
+    switch(type) {
+
+      case WStype_CONNECTED: {
+        LED_STATUS_CONNECTED();
+
+        IPAddress remoteIp = ws.remoteIP(client_num);
+        Serial.print("[CONNECTED] ");
+        Serial.println(remoteIp.toString());
+
+        String check_info = "{\"Name\":\"" + ws_name
+                          + "\",\"Type\":\"" + ws_type
+                          + "\",\"Check\":\"" + ws_check
+                          + "\",\"video\":\"" + videoUrl
+                          + "\"}";
+
+        ws.sendTXT(client_num, check_info);
+
+        ws_connected = true;
+        ws_state = STALE;
+
+        uint32_t now = millis();
+        lastPingSent = now;
+        lastPongReceived = now;
+        last_valid_cmd_time = now;
+
+        break;
+      }
+
+      case WStype_DISCONNECTED: {
+        LED_STATUS_DISCONNECTED();
+
+        Serial.println("[DISCONNECTED] client");
+
+        ws_connected = false;
+        client_num = 0xFF;
+        ws_state = DISCONNECTED;
+
+        sendSTOP();
+        break;
+      }
+
+      case WStype_TEXT: {
+
+        String incoming = intToString(payload, length);
+        if (incoming.length() == 0) return;
+
+        DynamicJsonDocument recvBuffer(WS_BUFFER_SIZE);
+        DeserializationError err = deserializeJson(recvBuffer, incoming);
+
+        if (err) {
+          Serial.println("[WS] JSON corrupto descartado");
+          return;
+        }
+
+        uint32_t now = millis();
+        lastPongReceived = now;
+
+        /* ---- PONG ---- */
+        if (recvBuffer.containsKey("pong")) return;
+
+        /* ---- PING ---- */
+        if (recvBuffer.containsKey("ping")) {
+          StaticJsonDocument<64> pong;
+          pong["pong"] = now;
+
+          String out;
+          serializeJson(pong, out);
+          ws.sendTXT(client_num, out);
+          return;
+        }
+
+        /* ---- SEQ ---- */
+        if (recvBuffer.containsKey("seq")) {
+          uint32_t seq = recvBuffer["seq"];
+          if (seq <= last_seq) return;
+          last_seq = seq;
+        }
+
+        /* ---- Anti flood ---- */
+        if (now - last_process_time < MIN_PROCESS_INTERVAL) return;
+        last_process_time = now;
+
+        /* ---- Construcción segura ---- */
+        String result = "WS+";
+        bool hasData = false;
+
+        for (int i = 0; i < REGIONS_LENGTH; i++) {
+
+          char key[2] = { REGIONS[i], '\0' };
+
+          if (recvBuffer.containsKey(key)) {
+
+            String value;
+
+            if (recvBuffer[key].is<JsonArray>()) {
+              JsonArray arr = recvBuffer[key];
+              for (JsonVariant v : arr) {
+                value += v.as<String>();
+                value += ",";
+              }
+              if (value.length() > 0) value.remove(value.length() - 1);
+            } else {
+              value = recvBuffer[key].as<String>();
+            }
+
+            if (value == "true") value = "1";
+            else if (value == "false") value = "0";
+
+            if (value.length() > 0 && value != "null") {
+              hasData = true;
+              result += value;
+            }
+          }
+
+          if (i != REGIONS_LENGTH - 1) result += ';';
+        }
+
+        if (!hasData) return;
+
+        /* ---- ACTUALIZAR ESTADO ---- */
+        last_valid_cmd_time = now;
+        ws_state = VALID_STREAM;
+
+        /* ---- SOLO enviar si stream válido ---- */
+        if (ws_state == VALID_STREAM) {
+          if (now - last_send_time > SEND_INTERVAL) {
+            Serial.println(result);
+            last_send_time = now;
+          }
+        }
+
+        break;
+      }
+
+      case WStype_BIN: {
+        lastPongReceived = millis();
+        break;
+      }
+
+      case WStype_ERROR: {
+        LED_STATUS_ERROOR();
+        break;
+      }
+
+      default:
+        break;
+    }
+  });
+
+  timer.attach_ms(100, supervisionTask);
 }
 
 void WS_Server::loop() {
   ws.loop();
 }
 
-void onWebSocketEvent(uint8_t cn, WStype_t type, uint8_t * payload, size_t length) {
-  String out;
-  client_num = cn;
-
-  // send pong
-  // if (ws_connected == true) {
-  uint32_t _time = millis();
-  if (_time - last_pong_time > PONG_INTERVAL) {
-    String msg = "pong "+String(_time);
-    ws.sendTXT(client_num, msg);
-    last_pong_time = millis();
-    #ifdef DEBUG
-    Serial.println("[DEBUG] [WS] send PONG");
-    #endif
-    // Serial.println(msg);
-  }
-  // }
-
-  switch(type) {
-    // Client has disconnected
-    case WStype_DISCONNECTED:{
-      LED_STATUS_DISCONNECTED();
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] Disconnected!");
-      #endif
-      IPAddress remoteIp = ws.remoteIP(client_num);
-      Serial.print("[DISCONNECTED] ");Serial.println(remoteIp.toString());
-      ws_connected = false;
-      break;
-    }
-    // New client has connected
-    case WStype_CONNECTED:{
-      LED_STATUS_CONNECTED();
-      IPAddress remoteIp = ws.remoteIP(client_num);
-      #ifdef DEBUG
-      Serial.print("[DEBUG] [WS] Connection from ");
-      Serial.println(remoteIp.toString());
-      #endif
-      Serial.print("[CONNECTED] ");Serial.println(remoteIp.toString());
-      // Send check_info  to client
-      String check_info = "{\"Name\":\"" + ws_name
-                        + "\",\"Type\":\"" + ws_type
-                        + "\",\"Check\":\"" + ws_check
-                        + "\",\"video\":\"" + videoUrl
-                        + "\"}";
-      ws.sendTXT(client_num, check_info);
-      delay(100);
-      ws.sendTXT(client_num, check_info);
-      ws_connected = true;
-      break;
-    }
-    // receive text
-    case WStype_TEXT:{
-      ws_connected = true;
-
-      out = intToString(payload, length);
-
-      // reset ping_pong time
-      lastPingPong = millis();
-      if (strcmp(out.c_str(), "ping") == 0) {
-        Serial.println("[APPSTOP]");
-        return;
-      }
-
-      // ------------- send simplified text -------------
-      DynamicJsonDocument recvBuffer(WS_BUFFER_SIZE);
-      deserializeJson(recvBuffer, out);
-      String result = "WS+";
-
-      // REGIONS
-      for (int i=0; i<REGIONS_LENGTH; i++){
-        String region = String(REGIONS[i]);
-        String value;
-        if (recvBuffer[region].is<JsonArray>()) {
-          for (int j=0; j<recvBuffer[region].size(); j++) {
-            value += recvBuffer[region][j].as<String>();
-            if (j != recvBuffer[region].size()-1) value += ',';
-          }
-        } else {
-          value = recvBuffer[region].as<String>();
-        }
-
-        if (value == "true") value = "1";
-        else if (value == "false") value = "0";
-        if (value != "null") result += value;
-        if (i != REGIONS_LENGTH - 1) result += ';';
-      }
-
-      // send
-      if (millis() - last_send_time > SEND_INTERVAL ) {
-        Serial.println(result);
-        last_send_time = millis();
-      }
-      break;
-    }
-    // For everything else: do nothing
-    case WStype_BIN: {
-      Serial.print("WSB+");
-      Serial.write(payload, length); Serial.println();
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_BIN");
-      #endif
-      break;
-    }
-    case WStype_ERROR: {
-      LED_STATUS_ERROOR();
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_ERROR");
-      #endif
-      break;
-    }
-    case WStype_FRAGMENT_TEXT_START: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_FRAGMENT_TEXT_START");
-      #endif
-      break;
-    }
-    case WStype_FRAGMENT_BIN_START: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_FRAGMENT_BIN_START");
-      #endif
-      break;
-    }
-    case WStype_FRAGMENT: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_FRAGMENT");
-      #endif
-      break;
-    }
-    case WStype_FRAGMENT_FIN: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_FRAGMENT_FIN");
-      #endif
-      break;
-    }
-    case WStype_PING: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_PING");
-      #endif
-      break;
-    }
-    case WStype_PONG: {
-      #ifdef DEBUG
-      Serial.println("[DEBUG] [WS] WStype_PONG");
-      #endif
-      break;
-    }
-    default: {
-      #ifdef DEBUG
-      Serial.print("[DEBUG] [WS] Event Type: [");Serial.print(type);Serial.println("]");
-      #endif
-      break;
-    }
-  }
-}
-
 void WS_Server::send(String data) {
+  if (!ws_connected || client_num == 0xFF) return;
+  if (data.length() == 0) return;
+
+  for (size_t i = 0; i < data.length(); i++) {
+    if (data[i] < 9 || data[i] > 126) return;
+  }
+
   ws.sendTXT(client_num, data);
 }
 
-// https://github.com/Links2004/arduinoWebSockets/blob/master/src/WebSocketsServer.cpp#L230
 void WS_Server::sendBIN(uint8_t* payload, size_t length) {
-  // bool WebSocketsServerCore::sendBIN(uint8_t num, const uint8_t * payload, size_t length)
+  if (!ws_connected || client_num == 0xFF) return;
   ws.sendBIN(client_num, payload, length);
 }
-
 
 bool WS_Server::is_connected() {
   return ws_connected;
 }
-

@@ -1,6 +1,8 @@
 import asyncio
 import websockets
 import json
+import time
+import re
 
 from config import WS_URI
 from sensors import Sensors
@@ -21,18 +23,15 @@ def decision_to_motors(decision):
         decision = decision.replace("nav_", "")
 
     if decision == "ADELANTE":
-        return VEL_MAX, VEL_MAX
-
+        return 1.0, 1.0
     elif decision == "IZQUIERDA":
-        return VEL_MAX * 0.8, VEL_MAX * 1.5
-
+        return 0.6, 1
     elif decision == "DERECHA":
-        return VEL_MAX * 1.5, VEL_MAX * 0.8
-
+        return 1, 0.6
     elif decision == "RETROCEDER":
-        return -VEL_MAX, -VEL_MAX
+        return -1.0, -1.0
 
-    return 0, 0
+    return 0.0, 0.0
 
 
 class RoverClient:
@@ -47,69 +46,154 @@ class RoverClient:
         self.override_timer = 0
 
         self.current_command = "nav_ADELANTE"
-        self.send_interval = 0.3 # 80 ms
+        self.send_interval = 0.1
 
-    async def connect(self):
-        self.ws = await websockets.connect(
-            self.uri,
-            ping_interval=None,
-            ping_timeout=None
-        )
-        print("Conectado al rover")
+        self.connected = False
+        self.reconnecting = False
 
-        # servo inicial
-        await self.ws.send(json.dumps({"D": 90}))
+        self.last_rx_time = time.time()
 
-        asyncio.create_task(self.ping_loop())
-        asyncio.create_task(self.command_stream())
-        asyncio.create_task(self.receiver_loop())
-
-
-    #-----------
-    # Ping loop
-    #-----------
-
-    async def ping_loop(self):
-        while True:
-            try:
-                await self.ws.send(json.dumps({"ping": 1}))
-                await asyncio.sleep(1)  
-            except Exception as e:
-                print("Error ping:", e)
-                await asyncio.sleep(1)
 
     # ----------------------
-    # RECEPCIÓN (sensores)
+    # CONEXIÓN
+    # ----------------------
+    async def connect(self):
+
+        if self.connected:
+            return
+
+        try:
+            self.ws = await websockets.connect(
+                self.uri,
+                ping_interval=None,
+                ping_timeout=None
+            )
+
+            self.connected = True
+            self.last_rx_time = time.time()
+
+            print("[WS] Conectado al rover")
+
+            await self.ws.send(json.dumps({"D": 90}))
+
+            if not hasattr(self, "rx_task") or self.rx_task.done():
+                self.rx_task = asyncio.create_task(self.receiver_loop())
+
+            if not hasattr(self, "tx_task") or self.tx_task.done():
+                self.tx_task = asyncio.create_task(self.command_stream())
+
+        except Exception as e:
+            print("[WS] Error conexión:", e)
+            await asyncio.sleep(1)
+            await self.reconnect()
+
+
+    async def reconnect(self):
+        if self.reconnecting:
+            return
+
+        self.reconnecting = True
+        self.connected = False
+
+        try:
+            if self.ws:
+                await self.ws.close()
+        except:
+            pass
+
+        print("[WS] Reconectando...")
+
+        while not self.connected:
+            try:
+                await asyncio.sleep(1)
+
+                self.ws = await websockets.connect(
+                    self.uri,
+                    ping_interval=None,
+                    ping_timeout=None
+                )
+
+                self.connected = True
+                self.last_rx_time = time.time()
+
+                print("[WS] Reconectado")
+
+
+            except Exception as e:
+                print("[WS] Reintento falló:", e)
+
+        self.reconnecting = False
+
+
+    # ----------------------
+    # RECEPCIÓN
     # ----------------------
     async def receiver_loop(self):
         while True:
             try:
-                message = await self.ws.recv()
+                message = await asyncio.wait_for(self.ws.recv(), timeout=3)
 
                 if not message:
                     continue
+
+                self.last_rx_time = time.time()
 
                 if isinstance(message, bytes):
                     continue
 
-                message = message.strip()
+                if isinstance(message, str):
+                    print("Message_data_test", message)
 
-                if not message:
-                    continue
+                    # -------- LIMPIEZA BASE --------
+                    # quitar prefijo WS+
+                    if "WS+" in message:
+                        message = message.split("WS+")[-1]
 
+                    message = message.strip()
+
+                    
+                    if "{" not in message:
+                        continue
+
+                    
+                    start = message.find("{")
+                    end = message.rfind("}") + 1
+
+                    if start == -1 or end == 0:
+                        continue
+
+                    message = message[start:end]
+
+                # -------- PARSEO --------
                 try:
                     data = json.loads(message)
                 except:
-                    continue  # ← ignorar basura sin log spam
+                    continue
 
+                # -------- PING → PONG --------
+                if "ping" in data:
+                    await self.ws.send(json.dumps({
+                        "pong": data["ping"]
+                    }))
+                    continue
+
+                # -------- UPDATE SENSORES --------
                 self.sensors.update(data)
 
+            except asyncio.TimeoutError:
+                continue
+
             except Exception as e:
-                print("Error RX:", e)
-                await asyncio.sleep(0.1)
+                print("[WS] Error RX:", e)
+
+                if self.connected and not self.reconnecting:
+                    self.connected = False
+                    await self.reconnect()
+
+                continue
 
     # ----------------------
-    # DECISIÓN FINAL
+    # DECISIÓN
     # ----------------------
     def compute_decision(self, nav_mask, roi_mask):
 
@@ -126,25 +210,35 @@ class RoverClient:
         nav_decision, *_ = decide_direction(nav_mask, roi_mask)
         return f"nav_{nav_decision}"
 
+
     # ----------------------
     # ENVÍO
     # ----------------------
     async def send_command(self, decision):
 
-        if not self.ws:
+        if not self.connected:
             return
 
         try:
-            izq, der = decision_to_motors(decision)
+            MAX_MOTOR = 20
+
+            scale_izq, scale_der = decision_to_motors(decision)
+
+            izq = VEL_MAX * scale_izq * bias_i
+            der = VEL_MAX * scale_der * bias_d
+
+            max_val = max(abs(izq), abs(der))
+
+            if max_val > MAX_MOTOR:
+                factor = MAX_MOTOR / max_val
+                izq *= factor
+                der *= factor
 
             cmd = {
-            "K": int(round(izq * bias_i)),
-            "Q": int(round(der * bias_d)),
-            "D": 90,
-            "M": 1,
-            "E": 0,
-            "F": 0,
-            "duracion_ms": int(CMD_TIME)
+                "K": int(round(izq)),
+                "Q": int(round(der)),
+                "M": 1,
+                "duracion_ms": int(CMD_TIME)
             }
 
             print(f"CMD -> {decision} | K:{cmd['K']} Q:{cmd['Q']}")
@@ -152,16 +246,45 @@ class RoverClient:
             await self.ws.send(json.dumps(cmd))
 
         except Exception as e:
-            print("Error TX:", e)
+            print("[WS] Error TX:", e)
+
+            if self.connected and not self.reconnecting:
+                self.connected = False
+                await self.reconnect()
+
 
     # ----------------------
-    # LOOP RÁPIDO
+    # LOOP DE ENVÍO
     # ----------------------
     async def command_stream(self):
         while True:
-            await self.send_command(self.current_command)
-            await asyncio.sleep(self.send_interval)
+            try:
+                if self.connected:
 
+
+                    if time.time() - self.last_rx_time > 5:
+                        print("[WS] Sin datos RX por 5s → reconectando")
+
+                        if not self.reconnecting:
+                            self.connected = False
+                            await self.reconnect()
+
+                        continue
+
+                    await self.send_command(self.current_command)
+
+                await asyncio.sleep(self.send_interval)
+
+            except Exception as e:
+                print("[WS] Error loop TX:", e)
+                self.connected = False
+                await asyncio.sleep(0.5)
+
+
+    # ----------------------
+    # CIERRE
+    # ----------------------
     async def close(self):
+        self.connected = False
         if self.ws:
             await self.ws.close()

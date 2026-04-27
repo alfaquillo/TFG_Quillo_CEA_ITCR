@@ -2,7 +2,7 @@ import asyncio
 import json
 import websockets
 
-URI = "ws://10.20.40.150:8765"
+URI = "ws://192.168.4.1:8765"
 
 
 async def test():

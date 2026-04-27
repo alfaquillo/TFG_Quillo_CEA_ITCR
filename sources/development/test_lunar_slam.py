@@ -12,7 +12,8 @@ import tflite_runtime.interpreter as tflite
 # ==============================
 
 #MODEL_PATH = "lunar_rpi5_int8.tflite" #RPI
-MODEL_PATH = "lunar_rpi5_float16.tflite" #INTELCPU
+#MODEL_PATH = "lunar_rpi5_float16.tflite" #INTELCPU
+MODEL_PATH = "model_fp16.tflite" #final model
 IMAGE_DIR = "dataset_test"
 SAVE_DIR = "results"
 

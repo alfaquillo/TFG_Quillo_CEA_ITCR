@@ -78,13 +78,17 @@ class Sensors:
 
         # IR
         if self.prox_izq == 1:
+            self.current_action = "RETROCEDER"
+            self.action_until = now + 0.5
             self.current_action = "DERECHA"
-            self.action_until = now + 1
+            self.action_until = now + 0.5
             return self.current_action
 
         if self.prox_der == 1:
+            self.current_action = "RETROCEDER"
+            self.action_until = now + 0.5
             self.current_action = "IZQUIERDA"
-            self.action_until = now + 1
+            self.action_until = now + 0.5
             return self.current_action
 
         return "LIBRE"

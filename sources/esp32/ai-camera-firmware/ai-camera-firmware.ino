@@ -72,15 +72,15 @@ extern String videoUrl;
 #define CAM_DEBUG_LEVEL_ALL 4
 
 /* Set the camera resolution */
-#define FRAMESIZE FRAMESIZE_QVGA // 320x240
+//#define FRAMESIZE FRAMESIZE_QVGA // 320x240
 // #define FRAMESIZE FRAMESIZE_HVGA // 480x320
-//#define FRAMESIZE FRAMESIZE_VGA // 640x480
+#define FRAMESIZE FRAMESIZE_VGA // 640x480
 // #define FRAMESIZE FRAMESIZE_SVGA // 800x600
 // #define FRAMESIZE FRAMESIZE_XGA // 1024x768
 // #define FRAMESIZE FRAMESIZE_HD // 1280x720
 
 /* Set size of fb_count */
-#define FB_COUNT 1
+#define FB_COUNT 2
 
 /* Set the camera flip */
 #define CAMERA_VERTICAL_FLIP 0

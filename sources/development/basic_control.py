@@ -8,9 +8,9 @@ ROVER_URI = "ws://192.168.4.1:8765"
 CAM_URI = "http://192.168.4.1:9000/mjpg"
 
 VEL_MAX = 20
-CMD_TIME = 250          # ms duración del movimiento
-SEND_INTERVAL = 0.40      # ~2.5 Hz
-KEY_TIMEOUT = 0.18        # simular liberación tecla
+CMD_TIME = 250         
+SEND_INTERVAL = 0.40      
+KEY_TIMEOUT = 0.18        
 
 keys = set()
 key_times = {}
@@ -102,7 +102,7 @@ async def main():
             cmd = {
                 "K": izq,
                 "Q": der*1.3,
-                "D": 90,
+                "D": 70,
                 "M": 0,
                 "E": 0,
                 "F": 0,
