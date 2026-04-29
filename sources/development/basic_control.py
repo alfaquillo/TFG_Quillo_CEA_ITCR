@@ -7,8 +7,8 @@ import time
 ROVER_URI = "ws://192.168.4.1:8765"
 CAM_URI = "http://192.168.4.1:9000/mjpg"
 
-VEL_MAX = 20
-CMD_TIME = 250         
+VEL_MAX = 15
+CMD_TIME = 700        
 SEND_INTERVAL = 0.40      
 KEY_TIMEOUT = 0.18        
 
@@ -102,7 +102,6 @@ async def main():
             cmd = {
                 "K": izq,
                 "Q": der*1.3,
-                "D": 70,
                 "M": 0,
                 "E": 0,
                 "F": 0,

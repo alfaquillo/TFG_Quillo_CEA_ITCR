@@ -8,9 +8,9 @@ from config import WS_URI
 from sensors import Sensors
 from navigation import decide_direction
 
-VEL_MAX = 5
-CMD_TIME = 300
-bias_d = 2.3
+VEL_MAX = 6
+CMD_TIME = 400
+bias_d = 1.3
 bias_i = 1
 OVERRIDE_CYCLES = 3
 
