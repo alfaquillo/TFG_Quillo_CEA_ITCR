@@ -7,27 +7,37 @@ WiFiHelper::WiFiHelper() {
 bool WiFiHelper::connect_STA(){
 
   Serial.println(F("Connecting to WiFi ..."));
-  Serial.print(F("ssid:"));Serial.println(ssid);
-  Serial.print(F("psk:"));Serial.println(password);
+  Serial.print(F("ssid:")); Serial.println(ssid);
+  Serial.print(F("psk:")); Serial.println(password);
 
-  // Connect to wifi
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+  WiFi.disconnect(true);
+  delay(100);
+
+  IPAddress local_IP(192,168,3,2);
+  IPAddress gateway(192,168,3,1);
+  IPAddress subnet(255,255,255,0);
+
+  if (!WiFi.config(local_IP, gateway, subnet)) {
+      Serial.println("STA Failed to configure");
+      return false;
+  }
+
   WiFi.begin(ssid.c_str(), password.c_str());
 
-  // Wait some time to connect to wifi
   int count = 0;
   Serial.print("[DEBUG] Connecting.");
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print("."); 
+    Serial.print(".");
     delay(500);
-    count ++;
+    count++;
     if (count > 30){
       Serial.println("");
       Serial.println(WiFi.status());
       return false;
     }
   }
+
   Serial.println("");
   ip = WiFi.localIP().toString();
   return true;
