@@ -1,21 +1,28 @@
 ########################################
-# Eliminar todo GUI
+#  Headless
 ########################################
 IMAGE_FEATURES:remove = "x11-base"
 DISTRO_FEATURES:remove = "x11 wayland gtk"
 
 ########################################
-# Networking (auto Ethernet)
+# Networking
 ########################################
 IMAGE_INSTALL:append = " \
-    networkmanager \
-    networkmanager-nmtui \
+    hostapd \
+    dnsmasq \
     iproute2 \
     ethtool \
+    iptables \
+    iw  \
+    network-config \
+    kernel-module-brcmfmac \
+    kernel-module-brcmutil \
+    linux-firmware-rpidistro-bcm43455 \
+    linux-firmware-rpidistro-broadcom-license \
 "
 
 ########################################
-# Python (solo lo necesario)
+# Python 
 ########################################
 IMAGE_INSTALL:append = " \
     python3 \
@@ -66,7 +73,7 @@ IMAGE_INSTALL:append = " \
 IMAGE_FEATURES:append = " ssh-server-dropbear"
 
 ########################################
-# Aplicación principal
+# Main APP
 ########################################
 IMAGE_INSTALL:append = " navigator"
 

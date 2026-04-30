@@ -209,7 +209,7 @@ bitbake core-image-minimal -c fetch
 bitbake core-image-minimal
 ```
 
-12. Generación y copia de imagen en la SD de la Raspberry pi4
+12. Generación y copia de imagen en la SD de la Raspberry pi5
 La ruta donde va a estar la imagen compilada es la siguiente
 
 ```bash
@@ -255,7 +255,7 @@ La SD después del flasheo tendrá estas particiones:
     Sistema: ext4/ext3
     Contenido: rootfs completo de Yocto
 
-Listo, ya puede conectar la SD en la RaspberryPi 4 y ejecutar la imagen compilada.
+Listo, ya puede conectar la SD en la RaspberryPi 5 y ejecutar la imagen compilada.
 
 Las credenciales por defecto son:
 
